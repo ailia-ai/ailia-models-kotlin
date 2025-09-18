@@ -10,8 +10,10 @@
           <set>
             <option value="$PROJECT_DIR$" />
             <option value="$PROJECT_DIR$/ailia-sdk-jni" />
+            <option value="$PROJECT_DIR$/ailia-speech-jni" />
             <option value="$PROJECT_DIR$/ailia-tflite-jni" />
             <option value="$PROJECT_DIR$/ailia-tokenizer-jni" />
+            <option value="$PROJECT_DIR$/ailia-tracker-jni" />
             <option value="$PROJECT_DIR$/app" />
           </set>
         </option>

@@ -27,6 +27,7 @@ git submodule update
 |Object Tracking|[ByteTrack](app/src/main/java/jp/axinc/ailia_kotlin/AiliaTrackerSample.kt)|ailia TFLite Runtime + ailia Tracker|
 |Image Classification|[MobileNetV2](app/src/main/java/jp/axinc/ailia_kotlin/AiliaTFLiteClassificationSample.kt)|ailia TFLite Runtime|
 |NLP|[GPT2 Tokenizer](app/src/main/java/jp/axinc/ailia_kotlin/AiliaTokenizerSample.kt)|ailia Tokenizer|
+|Whisper|[Whisper](app/src/main/java/jp/axinc/ailia_kotlin/AiliaSpeechSample.kt)|ailia Speech|
 
 ## Usage
 

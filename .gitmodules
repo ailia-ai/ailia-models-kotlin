@@ -10,3 +10,6 @@
 [submodule "ailia-tracker-jni"]
 	path = ailia-tracker-jni
 	url = git@github.com:axinc-ai/ailia-tracker-jni.git
+[submodule "ailia-speech-jni"]
+	path = ailia-speech-jni
+	url = git@github.com:axinc-ai/ailia-speech-jni.git
