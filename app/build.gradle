@@ -23,6 +23,12 @@ android {
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
     }
+
+    // java toolchainと合わせてkotlinのjvmTargetも17に設定
+    // (java toolchainだけではKotlinのjvmTargetは自動設定されない)
+    kotlinOptions {
+        jvmTarget = '17'
+    }
 }
 
 java {
