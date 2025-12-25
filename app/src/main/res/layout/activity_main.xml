@@ -193,6 +193,71 @@
                 android:textSize="16sp"
                 android:visibility="gone" />
 
+            <TextView
+                android:id="@+id/llmInputLabel"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="8dp"
+                android:text="Input Text:"
+                android:textColor="?android:attr/textColorPrimary"
+                android:textSize="16sp"
+                android:textStyle="bold"
+                android:visibility="gone" />
+
+            <EditText
+                android:id="@+id/llmInputEditText"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="8dp"
+                android:hint="Enter your message..."
+                android:maxLines="4"
+                android:minLines="2"
+                android:text="Hello! What can you do?"
+                android:textColor="?android:attr/textColorPrimary"
+                android:textColorHint="?android:attr/textColorSecondary"
+                android:visibility="gone" />
+
+            <Button
+                android:id="@+id/llmSendButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="end"
+                android:layout_marginBottom="16dp"
+                android:text="Send"
+                android:visibility="gone" />
+
+            <TextView
+                android:id="@+id/llmOutputLabel"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="8dp"
+                android:text="LLM Response:"
+                android:textColor="?android:attr/textColorPrimary"
+                android:textSize="16sp"
+                android:textStyle="bold"
+                android:visibility="gone" />
+
+            <TextView
+                android:id="@+id/llmOutputTextView"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="16dp"
+                android:fontFamily="monospace"
+                android:text="Response: --"
+                android:textColor="?android:attr/textColorPrimary"
+                android:textSize="14sp"
+                android:visibility="gone" />
+
+            <TextView
+                android:id="@+id/llmStatusTextView"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="16dp"
+                android:text="Status: Ready"
+                android:textColor="?android:attr/textColorSecondary"
+                android:textSize="12sp"
+                android:visibility="gone" />
+
         </LinearLayout>
     </ScrollView>
 
