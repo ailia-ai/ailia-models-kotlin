@@ -70,7 +70,8 @@ object ModelDownloader {
                 return null
             }
 
-            val totalBytes = urlConnection.contentLengthLong
+            // contentLengthLong requires API 24, use getHeaderField for API 21 compatibility
+            val totalBytes = urlConnection.getHeaderField("Content-Length")?.toLongOrNull() ?: -1L
             var bytesDownloaded: Long = 0
 
             val tempFile = File(cacheDir, "$fileName.tmp")
