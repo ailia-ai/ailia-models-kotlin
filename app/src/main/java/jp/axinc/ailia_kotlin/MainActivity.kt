@@ -338,6 +338,10 @@ class MainActivity : AppCompatActivity() {
                 llmOutputLabel.visibility = View.VISIBLE
                 llmOutputTextView.visibility = View.VISIBLE
                 llmStatusTextView.visibility = View.VISIBLE
+                // モード切り替え時にリセット
+                llmOutputTextView.text = ""
+                llmStatusTextView.text = "Status: Initializing..."
+                llmSendButton.isEnabled = false
             }
             AlgorithmType.MULTIMODAL_LLM -> {
                 imageView.visibility = View.VISIBLE
@@ -355,6 +359,10 @@ class MainActivity : AppCompatActivity() {
                 llmOutputLabel.visibility = View.VISIBLE
                 llmOutputTextView.visibility = View.VISIBLE
                 llmStatusTextView.visibility = View.VISIBLE
+                // モード切り替え時にリセット
+                llmOutputTextView.text = ""
+                llmStatusTextView.text = "Status: Initializing..."
+                llmSendButton.isEnabled = false
             }
             else -> {
                 if (isImageMode) {
@@ -663,17 +671,25 @@ class MainActivity : AppCompatActivity() {
     }
     
     private fun processImageMode() {
+        // LLM/MultimodalLLMは非同期初期化のため、このメソッドでは処理しない
+        if (currentAlgorithm == AlgorithmType.LLM || currentAlgorithm == AlgorithmType.MULTIMODAL_LLM) {
+            if (!isInitialized) {
+                initializeAilia()
+            }
+            return
+        }
+
         if (isProcessing.get()) {
             return
         }
-        
+
         isProcessing.set(true)
-        
+
         try {
             if (!isInitialized) {
                 initializeAilia()
             }
-            
+
             if (!isInitialized) {
                 runOnUiThread {
                     processingTimeTextView.text = "Failed to initialize ${currentAlgorithm.name}"
