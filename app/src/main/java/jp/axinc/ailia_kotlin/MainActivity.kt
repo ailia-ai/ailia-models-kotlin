@@ -95,18 +95,20 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
-        
+
+        // cameraExecutorはsetupModeSelection()より先に初期化する必要がある
+        // (SpinnerのonItemSelectedでinitializeAilia()が呼ばれるため)
+        cameraExecutor = Executors.newSingleThreadExecutor()
+
         initializeViews()
         setupModeSelection()
         updateUIVisibility()
-        
+
         if (allPermissionsGranted()) {
             initializeAilia()
         } else {
             ActivityCompat.requestPermissions(this, REQUIRED_PERMISSIONS, REQUEST_CODE_PERMISSIONS)
         }
-        
-        cameraExecutor = Executors.newSingleThreadExecutor()
     }
     
     private fun initializeViews() {
@@ -143,7 +145,7 @@ class MainActivity : AppCompatActivity() {
         val adapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, algorithms)
         adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
         algorithmSpinner.adapter = adapter
-        
+
         algorithmSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
             override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
                 val newAlgorithm = AlgorithmType.values()[position]
@@ -151,7 +153,7 @@ class MainActivity : AppCompatActivity() {
                     switchAlgorithm(newAlgorithm)
                 }
             }
-            
+
             override fun onNothingSelected(parent: AdapterView<*>?) {}
         }
         

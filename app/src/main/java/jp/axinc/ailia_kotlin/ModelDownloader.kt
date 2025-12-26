@@ -14,10 +14,10 @@ object ModelDownloader {
     private const val TAG = "ModelDownloader"
     private const val BASE_URL = "https://storage.googleapis.com/ailia-models"
 
-    // LLM Model URLs
-    const val GEMMA_2_MODEL_URL = "$BASE_URL/gemma-2-2b-it-Q4_K_M.gguf"
-    const val GEMMA_3_MODEL_URL = "$BASE_URL/gemma-3-4b-it-Q4_K_M.gguf"
-    const val GEMMA_3_MMPROJ_URL = "$BASE_URL/gemma-3-4b-it-GGUF_mmproj-model-f16.gguf"
+    // LLM Model URLs (gemmaモデルはすべて/gemma/に配置)
+    const val GEMMA_2_MODEL_URL = "$BASE_URL/gemma/gemma-2-2b-it-Q4_K_M.gguf"
+    const val GEMMA_3_MODEL_URL = "$BASE_URL/gemma/gemma-3-4b-it-Q4_K_M.gguf"
+    const val GEMMA_3_MMPROJ_URL = "$BASE_URL/gemma/gemma-3-4b-it-GGUF_mmproj-model-f16.gguf"
 
     // Sample image for multimodal demo
     const val SAMPLE_IMAGE_URL = "$BASE_URL/misc/sample_image.jpg"
