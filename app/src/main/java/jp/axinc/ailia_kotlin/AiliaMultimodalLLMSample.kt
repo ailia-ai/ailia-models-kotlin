@@ -1,10 +1,14 @@
 package jp.axinc.ailia_kotlin
 
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.util.Log
 import ai.ailia.llm.AiliaLLM
 import ai.ailia.llm.AiliaLLMMediaData
 import ai.ailia.llm.AiliaLLMMultimodalChatMessage
+import java.io.File
+import java.io.FileOutputStream
 
 /**
  * Sample class demonstrating ailia Multimodal LLM inference for image understanding.
@@ -85,24 +89,15 @@ class AiliaMultimodalLLMSample {
             }
             projectorPath = projectorFile.absolutePath
 
-            // Download sample image
-            Log.i(TAG, "Downloading sample image...")
-            val sampleImageFile = ModelDownloader.downloadSampleImage(context, object : ModelDownloader.DownloadListener {
-                override fun onProgress(bytesDownloaded: Long, totalBytes: Long) {
-                    listener?.onDownloadProgress("sample_image.jpg", bytesDownloaded, totalBytes)
-                }
-                override fun onComplete(file: java.io.File) {
-                    Log.i(TAG, "Sample image download complete: ${file.absolutePath}")
-                }
-                override fun onError(error: String) {
-                    Log.e(TAG, "Sample image download error: $error")
-                }
-            })
+            // Use built-in sample image (R.raw.person) instead of downloading
+            Log.i(TAG, "Preparing sample image from resources...")
+            val sampleImageFile = prepareSampleImageFromResources(context)
             if (sampleImageFile == null) {
-                listener?.onError("Failed to download sample image")
+                listener?.onError("Failed to prepare sample image")
                 return false
             }
             sampleImagePath = sampleImageFile.absolutePath
+            Log.i(TAG, "Sample image ready: $sampleImagePath")
 
             // Create AiliaLLM instance
             Log.i(TAG, "Creating AiliaLLM instance...")
@@ -144,8 +139,7 @@ class AiliaMultimodalLLMSample {
      */
     fun areFilesDownloaded(context: Context): Boolean {
         return ModelDownloader.isGemma3ModelDownloaded(context) &&
-               ModelDownloader.isGemma3ProjectorDownloaded(context) &&
-               ModelDownloader.isSampleImageDownloaded(context)
+               ModelDownloader.isGemma3ProjectorDownloaded(context)
     }
 
     /**
@@ -263,6 +257,35 @@ class AiliaMultimodalLLMSample {
             sampleImagePath = null
             conversationHistory.clear()
             Log.i(TAG, "Multimodal LLM released")
+        }
+    }
+
+    /**
+     * Prepares the sample image from R.raw.person resource.
+     * Saves the bitmap to a temporary file for use with AiliaLLM.
+     */
+    private fun prepareSampleImageFromResources(context: Context): File? {
+        return try {
+            val options = BitmapFactory.Options().apply {
+                inScaled = false
+            }
+            val bitmap = BitmapFactory.decodeResource(context.resources, R.raw.person, options)
+            if (bitmap == null) {
+                Log.e(TAG, "Failed to decode R.raw.person")
+                return null
+            }
+
+            val file = File(context.cacheDir, "sample_image.jpg")
+            FileOutputStream(file).use { out ->
+                bitmap.compress(Bitmap.CompressFormat.JPEG, 95, out)
+            }
+            bitmap.recycle()
+
+            Log.i(TAG, "Sample image saved to: ${file.absolutePath}")
+            file
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to prepare sample image: ${e.message}", e)
+            null
         }
     }
 }

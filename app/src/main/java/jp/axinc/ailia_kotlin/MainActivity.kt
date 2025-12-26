@@ -403,8 +403,10 @@ class MainActivity : AppCompatActivity() {
         releaseCurrentAlgorithm()
         currentAlgorithm = newAlgorithm
         isInitialized = false
+        // アルゴリズム切り替え時にProcessing Timeをリセット
+        processingTimeTextView.text = "Processing Time: -- ms"
         updateUIVisibility()
-        
+
         if (modeRadioGroup.checkedRadioButtonId == R.id.imageRadioButton) {
             processImageMode()
         }
@@ -671,8 +673,22 @@ class MainActivity : AppCompatActivity() {
     }
     
     private fun processImageMode() {
-        // LLM/MultimodalLLMは非同期初期化のため、このメソッドでは処理しない
-        if (currentAlgorithm == AlgorithmType.LLM || currentAlgorithm == AlgorithmType.MULTIMODAL_LLM) {
+        // LLMは非同期初期化のため、このメソッドでは処理しない
+        if (currentAlgorithm == AlgorithmType.LLM) {
+            if (!isInitialized) {
+                initializeAilia()
+            }
+            return
+        }
+
+        // MultimodalLLMはperson画像を表示してから初期化
+        if (currentAlgorithm == AlgorithmType.MULTIMODAL_LLM) {
+            // person画像を表示
+            val options = BitmapFactory.Options()
+            options.inScaled = false
+            val personBmp = BitmapFactory.decodeResource(this.resources, R.raw.person, options)
+            imageView.setImageBitmap(personBmp)
+
             if (!isInitialized) {
                 initializeAilia()
             }
