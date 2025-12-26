@@ -62,7 +62,7 @@ class AiliaLLMSample {
 
             // Add system prompt
             conversationHistory.clear()
-            conversationHistory.add(AiliaLLMChatMessage("system", "You are a helpful assistant."))
+            conversationHistory.add(AiliaLLMChatMessage("system", "You are a helpful assistant. Keep your responses brief and concise."))
 
             isInitialized = true
             Log.i(TAG, "LLM initialized successfully. Context size: ${llm!!.getContextSize()}")

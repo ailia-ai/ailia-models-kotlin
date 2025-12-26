@@ -339,6 +339,7 @@ class MainActivity : AppCompatActivity() {
                 llmOutputTextView.visibility = View.VISIBLE
                 llmStatusTextView.visibility = View.VISIBLE
                 // モード切り替え時にリセット
+                llmInputEditText.setText("Hello!")
                 llmOutputTextView.text = ""
                 llmStatusTextView.text = "Status: Initializing..."
                 llmSendButton.isEnabled = false
@@ -360,6 +361,7 @@ class MainActivity : AppCompatActivity() {
                 llmOutputTextView.visibility = View.VISIBLE
                 llmStatusTextView.visibility = View.VISIBLE
                 // モード切り替え時にリセット
+                llmInputEditText.setText("What is in this image?")
                 llmOutputTextView.text = ""
                 llmStatusTextView.text = "Status: Initializing..."
                 llmSendButton.isEnabled = false

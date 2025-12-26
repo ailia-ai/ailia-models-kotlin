@@ -120,7 +120,7 @@ class AiliaMultimodalLLMSample {
 
             // Add system prompt
             conversationHistory.clear()
-            conversationHistory.add(AiliaLLMMultimodalChatMessage("system", "You are a helpful assistant that can understand images."))
+            conversationHistory.add(AiliaLLMMultimodalChatMessage("system", "You are a helpful assistant that can understand images. Describe images briefly and concisely."))
 
             isInitialized = true
             Log.i(TAG, "Multimodal LLM initialized successfully. Context size: ${llm!!.getContextSize()}")
