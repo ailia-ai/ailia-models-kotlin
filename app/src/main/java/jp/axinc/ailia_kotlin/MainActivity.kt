@@ -48,6 +48,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var llmOutputLabel: TextView
     private lateinit var llmOutputTextView: TextView
     private lateinit var llmStatusTextView: TextView
+    private lateinit var multimodalImageView: ImageView
 
     private var poseEstimatorSample = AiliaPoseEstimatorSample()
     private var objectDetectionSample = AiliaTFLiteObjectDetectionSample()
@@ -128,6 +129,7 @@ class MainActivity : AppCompatActivity() {
         llmOutputLabel = findViewById(R.id.llmOutputLabel)
         llmOutputTextView = findViewById(R.id.llmOutputTextView)
         llmStatusTextView = findViewById(R.id.llmStatusTextView)
+        multimodalImageView = findViewById(R.id.multimodalImageView)
     }
     
     private fun setupModeSelection() {
@@ -254,6 +256,7 @@ class MainActivity : AppCompatActivity() {
                 trackingResultTextView.visibility = View.GONE
                 findViewById<TextView>(R.id.tokenizerInputLabel).visibility = View.VISIBLE
                 findViewById<TextView>(R.id.tokenizerOutputLabel).visibility = View.VISIBLE
+                multimodalImageView.visibility = View.GONE
                 llmInputLabel.visibility = View.GONE
                 llmInputEditText.visibility = View.GONE
                 llmSendButton.visibility = View.GONE
@@ -276,6 +279,7 @@ class MainActivity : AppCompatActivity() {
                 trackingResultTextView.visibility = View.GONE
                 findViewById<TextView>(R.id.tokenizerInputLabel).visibility = View.GONE
                 findViewById<TextView>(R.id.tokenizerOutputLabel).visibility = View.GONE
+                multimodalImageView.visibility = View.GONE
                 llmInputLabel.visibility = View.GONE
                 llmInputEditText.visibility = View.GONE
                 llmSendButton.visibility = View.GONE
@@ -298,6 +302,7 @@ class MainActivity : AppCompatActivity() {
                 trackingResultTextView.visibility = View.VISIBLE
                 findViewById<TextView>(R.id.tokenizerInputLabel).visibility = View.GONE
                 findViewById<TextView>(R.id.tokenizerOutputLabel).visibility = View.GONE
+                multimodalImageView.visibility = View.GONE
                 llmInputLabel.visibility = View.GONE
                 llmInputEditText.visibility = View.GONE
                 llmSendButton.visibility = View.GONE
@@ -315,6 +320,7 @@ class MainActivity : AppCompatActivity() {
                 trackingResultTextView.visibility = View.GONE
                 findViewById<TextView>(R.id.tokenizerInputLabel).visibility = View.GONE
                 findViewById<TextView>(R.id.tokenizerOutputLabel).visibility = View.GONE
+                multimodalImageView.visibility = View.GONE
                 llmInputLabel.visibility = View.GONE
                 llmInputEditText.visibility = View.GONE
                 llmSendButton.visibility = View.GONE
@@ -332,6 +338,7 @@ class MainActivity : AppCompatActivity() {
                 trackingResultTextView.visibility = View.GONE
                 findViewById<TextView>(R.id.tokenizerInputLabel).visibility = View.GONE
                 findViewById<TextView>(R.id.tokenizerOutputLabel).visibility = View.GONE
+                multimodalImageView.visibility = View.GONE
                 llmInputLabel.visibility = View.VISIBLE
                 llmInputEditText.visibility = View.VISIBLE
                 llmSendButton.visibility = View.VISIBLE
@@ -345,7 +352,7 @@ class MainActivity : AppCompatActivity() {
                 llmSendButton.isEnabled = false
             }
             AlgorithmType.MULTIMODAL_LLM -> {
-                imageView.visibility = View.VISIBLE
+                imageView.visibility = View.GONE
                 cameraPreviewView.visibility = View.GONE
                 resultScrollView.visibility = View.VISIBLE
                 classificationResultTextView.visibility = View.GONE
@@ -354,6 +361,7 @@ class MainActivity : AppCompatActivity() {
                 trackingResultTextView.visibility = View.GONE
                 findViewById<TextView>(R.id.tokenizerInputLabel).visibility = View.GONE
                 findViewById<TextView>(R.id.tokenizerOutputLabel).visibility = View.GONE
+                multimodalImageView.visibility = View.VISIBLE
                 llmInputLabel.visibility = View.VISIBLE
                 llmInputEditText.visibility = View.VISIBLE
                 llmSendButton.visibility = View.VISIBLE
@@ -381,6 +389,7 @@ class MainActivity : AppCompatActivity() {
                 trackingResultTextView.visibility = View.GONE
                 findViewById<TextView>(R.id.tokenizerInputLabel).visibility = View.GONE
                 findViewById<TextView>(R.id.tokenizerOutputLabel).visibility = View.GONE
+                multimodalImageView.visibility = View.GONE
                 llmInputLabel.visibility = View.GONE
                 llmInputEditText.visibility = View.GONE
                 llmSendButton.visibility = View.GONE
@@ -685,11 +694,11 @@ class MainActivity : AppCompatActivity() {
 
         // MultimodalLLMはperson画像を表示してから初期化
         if (currentAlgorithm == AlgorithmType.MULTIMODAL_LLM) {
-            // person画像を表示
+            // person画像をmultimodalImageViewに表示
             val options = BitmapFactory.Options()
             options.inScaled = false
             val personBmp = BitmapFactory.decodeResource(this.resources, R.raw.person, options)
-            imageView.setImageBitmap(personBmp)
+            multimodalImageView.setImageBitmap(personBmp)
 
             if (!isInitialized) {
                 initializeAilia()
