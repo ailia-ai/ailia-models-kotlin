@@ -1,17 +1,27 @@
 // Top-level build file where you can add configuration options common to all sub-projects/modules.
-buildscript {
-    repositories {
-        google()
-        mavenCentral()
-    }
-    dependencies {
-        classpath 'com.android.tools.build:gradle:7.4.2'
-        classpath 'org.jetbrains.kotlin:kotlin-gradle-plugin:1.8.22'
-        // NOTE: Do not place your application dependencies here; they belong
-        // in the individual module build.gradle files
-    }
+plugins {
+    id 'com.android.application' version '8.13.2' apply false
+    id 'com.android.library' version '8.13.2' apply false
+    id 'org.jetbrains.kotlin.android' version '1.8.22' apply false
 }
 
-task clean(type: Delete) {
-    delete rootProject.buildDir
+// Kotlin jvmTarget設定の補足:
+// Gradle 8.13 + foojay-resolver-convention + gradle-daemon-jvm.properties (toolchainVersion=17) の
+// 組み合わせでは、KotlinプラグインがGradleデーモンのJVMバージョン(17)を検出し、
+// kotlinOptionsのjvmTargetを自動的に17に設定してしまう。
+// 外部モジュール(ailia-xxx-jni)はcompileOptionsでJava 1.8を指定しているが、
+// kotlinOptionsが未設定のためJava/Kotlin間でjvmTargetの不整合が発生する。
+// この問題を解決するため、ルートのbuild.gradleで外部モジュールに対して
+// kotlinOptions.jvmTarget = '1.8' をオーバーライドする。
+// (外部モジュールのbuild.gradleファイル自体は変更しない)
+subprojects {
+    afterEvaluate {
+        if (plugins.hasPlugin('org.jetbrains.kotlin.android') && project.name != 'app') {
+            android {
+                kotlinOptions {
+                    jvmTarget = '1.8'
+                }
+            }
+        }
+    }
 }
