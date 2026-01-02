@@ -48,6 +48,7 @@ class MainActivity : AppCompatActivity() {
     private var tokenizerSample = AiliaTokenizerSample()
     private var trackerSample = AiliaTrackerSample()
     private var speechSample = AiliaSpeechSample()
+    private var voiceSample = AiliaVoiceSample()
     
     private var selectedEnv: AiliaEnvironment? = null
     private var isInitialized = false
@@ -69,6 +70,7 @@ class MainActivity : AppCompatActivity() {
         TOKENIZE,
         CLASSIFICATION,
         SPEECH_TO_TEXT,
+        TEXT_TO_SPEECH,
     }
     
     companion object {
@@ -117,6 +119,7 @@ class MainActivity : AppCompatActivity() {
             "Tracking",
             "Tokenize",
             "Classification",
+            "Speech2Text",
             "Text2Speech",
         )
         
@@ -210,6 +213,15 @@ class MainActivity : AppCompatActivity() {
                 }
                 0
             }
+            AlgorithmType.TEXT_TO_SPEECH -> {
+                var audio : WavFileData = loadRawAudio(R.raw.demo)
+                //var text : String =
+                voiceSample.textToSpeech()//audio.audioData, audio.channels, audio.sampleRate)
+                runOnUiThread {
+                    classificationResultTextView.text = "Speech Results: $text"
+                }
+                0
+            }
         }
     }
     
@@ -272,6 +284,17 @@ class MainActivity : AppCompatActivity() {
                 findViewById<TextView>(R.id.tokenizerInputLabel).visibility = View.GONE
                 findViewById<TextView>(R.id.tokenizerOutputLabel).visibility = View.GONE
             }
+            AlgorithmType.TEXT_TO_SPEECH -> {
+                imageView.visibility = View.GONE
+                cameraPreviewView.visibility = View.GONE
+                resultScrollView.visibility = View.VISIBLE
+                classificationResultTextView.visibility = View.VISIBLE
+                tokenizerInputEditText.visibility = View.GONE
+                tokenizerOutputTextView.visibility = View.GONE
+                trackingResultTextView.visibility = View.GONE
+                findViewById<TextView>(R.id.tokenizerInputLabel).visibility = View.GONE
+                findViewById<TextView>(R.id.tokenizerOutputLabel).visibility = View.GONE
+            }
             else -> {
                 if (isImageMode) {
                     imageView.visibility = View.VISIBLE
@@ -320,6 +343,7 @@ class MainActivity : AppCompatActivity() {
             tokenizerSample.releaseTokenizer()
             trackerSample.releaseTracker()
             speechSample.releaseSpeech()
+            voiceSample.releaseVoice()
         } catch (e: Exception) {
             Log.e("AILIA_Error", "Error releasing algorithms: ${e.message}")
         }
@@ -395,6 +419,9 @@ class MainActivity : AppCompatActivity() {
                 }
                 AlgorithmType.SPEECH_TO_TEXT -> {
                     isInitialized = speechSample.initializeSpeech()
+                }
+                AlgorithmType.TEXT_TO_SPEECH -> {
+                    isInitialized = voiceSample.initializeVoice()
                 }
             }
             
