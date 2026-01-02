@@ -218,7 +218,7 @@ class MainActivity : AppCompatActivity() {
                 //var text : String =
                 voiceSample.textToSpeech()//audio.audioData, audio.channels, audio.sampleRate)
                 runOnUiThread {
-                    classificationResultTextView.text = "Speech Results: $text"
+                    classificationResultTextView.text = "";//""Speech Results: $text"
                 }
                 0
             }
