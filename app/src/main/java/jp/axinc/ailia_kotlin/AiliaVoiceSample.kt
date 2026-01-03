@@ -109,6 +109,29 @@ class AiliaVoiceSample {
         executor.shutdown()
     }
 
+    private fun downloadUserDictionry() {
+        val executor = Executors.newFixedThreadPool(2)
+
+        val baseUrl = "https://storage.googleapis.com/ailia-models"
+        val tasks = listOf(
+            "user.dict",
+        )
+
+        val futures = mutableListOf<Future<String>>()
+
+        for (item in tasks) {
+            val url = "$baseUrl/gpt-sovits-v3/$item"
+            val future = executor.submit(Callable {
+                download(url, item)
+            })
+            futures.add(future)
+        }
+
+        val userDictPaths = futures.map { it.get() }
+
+        executor.shutdown()
+    }
+
     private fun downloadModel() {
         val executor = Executors.newFixedThreadPool(2)
 
@@ -145,6 +168,7 @@ class AiliaVoiceSample {
 
             downloadJapaneseDictionry()
             downloadEnglishDictionry()
+            downloadUserDictionry()
             downloadModel()
 
             Log.i("AILIA_Main", "End model download")
@@ -156,6 +180,7 @@ class AiliaVoiceSample {
             voice = AiliaVoice()
 
             val dir: String = modelDirectory()
+            voice?.setUserDictionaryFile(path = "${dir}/user.dict", AILIA_VOICE_DICTIONARY_TYPE_OPEN_JTALK)
             voice?.openDictionaryFile(path = dir, dictionaryType = AILIA_VOICE_DICTIONARY_TYPE_OPEN_JTALK)
             voice?.openDictionaryFile(path = dir, dictionaryType = AILIA_VOICE_DICTIONARY_TYPE_G2P_EN)
 
@@ -220,7 +245,7 @@ class AiliaVoiceSample {
 
             Log.d(AiliaVoiceSample.Companion.TAG, "Inference run")
             val startTime = System.nanoTime()
-            val inferenceResult : AiliaVoice.AudioData = voice?.inference(g2pText)!!
+            val inferenceResult : AiliaVoice.AudioData = voice?.synthesizeVoice(g2pText)!!
             val endTime = System.nanoTime()
             Log.d(AiliaVoiceSample.Companion.TAG, "Inference result samples ${inferenceResult.data.size} channels ${inferenceResult.channels} sampleRate ${inferenceResult.samplingRate}")
             playAudio(inferenceResult.data, inferenceResult.channels, inferenceResult.samplingRate)
