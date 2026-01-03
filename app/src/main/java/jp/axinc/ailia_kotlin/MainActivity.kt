@@ -250,17 +250,20 @@ class MainActivity : AppCompatActivity() {
             }
 
             AlgorithmType.TEXT_TO_SPEECH -> {
-                var audio: AudioUtil.WavFileData = AudioUtil().loadRawAudio(this.resources.openRawResource(R.raw.reference_audio_girl))
-                voiceSample.textToSpeech(
-                    audio.audioData,
-                    audio.channels,
-                    audio.sampleRate,
-                    "水をマレーシアから買わなくてはならない。"
+                var refAudio: AudioUtil.WavFileData = AudioUtil().loadRawAudio(this.resources.openRawResource(R.raw.reference_audio_girl))
+                var inferenceTime = voiceSample.textToSpeech(
+                    refAudio.audioData,
+                    refAudio.channels,
+                    refAudio.sampleRate,
+                    "水をマレーシアから買わなくてはならない。",
+                    "ja",
+                    "Hello world. We will introduce ailia AI voice.",
+                    "en",
                 )
                 runOnUiThread {
                     classificationResultTextView.text = "Voice Generated"
                 }
-                0
+                inferenceTime
             }
         }
     }
