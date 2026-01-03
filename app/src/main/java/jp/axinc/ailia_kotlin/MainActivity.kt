@@ -214,11 +214,10 @@ class MainActivity : AppCompatActivity() {
                 0
             }
             AlgorithmType.TEXT_TO_SPEECH -> {
-                var audio : WavFileData = loadRawAudio(R.raw.demo)
-                //var text : String =
-                voiceSample.textToSpeech()//audio.audioData, audio.channels, audio.sampleRate)
+                var audio : WavFileData = loadRawAudio(R.raw.reference_audio_girl)
+                voiceSample.textToSpeech(audio.audioData, audio.channels, audio.sampleRate, "水をマレーシアから買わなくてはならない。")
                 runOnUiThread {
-                    classificationResultTextView.text = "";//""Speech Results: $text"
+                    classificationResultTextView.text = "Voice Generated"
                 }
                 0
             }
@@ -819,6 +818,16 @@ class MainActivity : AppCompatActivity() {
                 throw IllegalArgumentException("Invalid WAV file")
             }
 
+            val riff = String(header, 0, 4, Charsets.US_ASCII)
+
+            if (riff != "RIFF") {
+                throw IllegalArgumentException("Invalid WAV file: header[0..3] is '$riff' (expected 'RIFF')")
+            } else {
+                Log.d("WavCheck", "RIFF header found correctly")
+            }
+
+            // TODO : JUNKの読み飛ばし
+
             // Extract necessary information
             val audioFormat = ByteBuffer.wrap(header, 20, 2).order(ByteOrder.LITTLE_ENDIAN).short.toInt()
             val channels = ByteBuffer.wrap(header, 22, 2).order(ByteOrder.LITTLE_ENDIAN).short.toInt()
@@ -826,7 +835,7 @@ class MainActivity : AppCompatActivity() {
             val bitsPerSample = ByteBuffer.wrap(header, 34, 2).order(ByteOrder.LITTLE_ENDIAN).short.toInt()
 
             if (audioFormat != 1 || bitsPerSample != 16) {
-                throw IllegalArgumentException("Unsupported WAV format: Only PCM 16-bit is supported.")
+                throw IllegalArgumentException("Unsupported WAV format: Only PCM 16-bit is supported. audioFormat $audioFormat bitsPerSample $bitsPerSample")
             }
 
             val byteRate = sampleRate * channels * bitsPerSample / 8

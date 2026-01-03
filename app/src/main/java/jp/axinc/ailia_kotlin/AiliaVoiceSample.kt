@@ -16,9 +16,14 @@ import java.util.concurrent.Callable
 import java.util.concurrent.Executors
 import java.util.concurrent.Future
 
+import android.media.AudioAttributes
+import android.media.AudioFormat
+import android.media.AudioTrack
+import kotlin.math.roundToInt
+
 class AiliaVoiceSample {
     companion object {
-        private const val TAG = "AiliaVoiceSample"
+        private const val TAG = "AILIA_Main"
         private var voice: AiliaVoice? = null
         private var isInitialized = false
     }
@@ -110,12 +115,6 @@ class AiliaVoiceSample {
 
             voice = AiliaVoice()
 
-            val createResult = voice?.open()
-            if (!createResult!!) {
-                Log.e(AiliaVoiceSample.Companion.TAG, "Failed to initialize voice")
-                false
-            }
-
             val dir: String = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS).absolutePath
             val status = voice?.openDictionaryFile(path = dir, dictionaryType = AILIA_VOICE_DICTIONARY_TYPE_OPEN_JTALK)
             if (status!! != 0) {
@@ -153,8 +152,8 @@ class AiliaVoiceSample {
         }
     }
 
-    fun textToSpeech() {
-        Log.d(TAG, "Starting ailia Voice JNI sample")
+    fun textToSpeech(audio: FloatArray, channels: Int, sampleRate: Int, refText: String) {
+        Log.d(AiliaVoiceSample.Companion.TAG, "Starting ailia Voice JNI sample")
 
         if (voice == null){
             return;
@@ -162,43 +161,20 @@ class AiliaVoiceSample {
 
         try {
             val testText = "こんにちは、世界"
-            Log.d(TAG, "Processing text: $testText")
+            Log.d(AiliaVoiceSample.Companion.TAG, "Processing text: $testText")
+            voice?.setReferenceAudio(audio, audio.size * 4, channels, sampleRate, voice?.g2p(refText)!!)
 
-            val g2pResult = voice?.graphemeToPhoneme(testText, AiliaVoice.AILIA_VOICE_G2P_TYPE_GPT_SOVITS_JA)
-            if (g2pResult != AiliaVoice.AILIA_STATUS_SUCCESS) {
-                Log.e(TAG, "Failed to perform G2P: $g2pResult")
-                val errorDetail = voice?.getErrorDetail()
-                if (errorDetail != null) {
-                    Log.e(TAG, "Error detail: $errorDetail")
-                }
-                return
-            }
-            Log.d(TAG, "G2P processing successful")
-
-            val featureLength = voice?.getFeatureLength()
-            if (featureLength!! > 0) {
-                Log.d(TAG, "Feature length: $featureLength")
-
-                val features = voice?.getFeatures()
-                if (features != null) {
-                    Log.d(TAG, "Features extracted successfully (length: ${features.length})")
-                    Log.d(TAG, "Features preview: ${features.take(100)}...")
-                } else {
-                    Log.e(TAG, "Failed to get features")
-                }
-            } else {
-                Log.e(TAG, "Invalid feature length: $featureLength")
-            }
-
-            val inferenceResult = voice?.inference(testText)
+            val g2pText = voice?.g2p(testText)!!;
+            Log.d(AiliaVoiceSample.Companion.TAG, "Features: $g2pText")
+            val inferenceResult = voice?.inference(g2pText)
             if (inferenceResult != AiliaVoice.AILIA_STATUS_SUCCESS) {
-                Log.e(TAG, "Failed to perform inference: $inferenceResult")
+                Log.e(AiliaVoiceSample.Companion.TAG, "Failed to perform inference: $inferenceResult")
                 val errorDetail = voice?.getErrorDetail()
                 if (errorDetail != null) {
-                    Log.e(TAG, "Error detail: $errorDetail")
+                    Log.e(AiliaVoiceSample.Companion.TAG, "Error detail: $errorDetail")
                 }
             } else {
-                Log.d(TAG, "Inference successful")
+                Log.d(AiliaVoiceSample.Companion.TAG, "Inference successful")
 
                 val waveInfo = voice?.getWaveInfo()
                 if (waveInfo != null && waveInfo.size >= 3) {
@@ -206,7 +182,7 @@ class AiliaVoiceSample {
                     val channels = waveInfo[1]
                     val samplingRate = waveInfo[2]
 
-                    Log.d(TAG, "Wave info - Samples: $samples, Channels: $channels, Sampling rate: $samplingRate")
+                    Log.d(AiliaVoiceSample.Companion.TAG, "Wave info - Samples: $samples, Channels: $channels, Sampling rate: $samplingRate")
 
                     if (samples > 0) {
                         val bufferSize = samples * channels * 4
@@ -214,23 +190,83 @@ class AiliaVoiceSample {
 
                         val getWaveResult = voice?.getWave(waveBuffer, bufferSize)
                         if (getWaveResult == AiliaVoice.AILIA_STATUS_SUCCESS) {
-                            Log.d(TAG, "Successfully retrieved wave data (${waveBuffer.size} samples)")
-                            Log.d(TAG, "First few samples: ${waveBuffer.take(10).joinToString(", ")}")
+                            Log.d(AiliaVoiceSample.Companion.TAG, "Successfully retrieved wave data (${waveBuffer.size} samples)")
+                            Log.d(AiliaVoiceSample.Companion.TAG, "First few samples: ${waveBuffer.take(10).joinToString(", ")}")
+                            playWave(waveBuffer, channels, samplingRate)
                         } else {
-                            Log.e(TAG, "Failed to get wave data: $getWaveResult")
+                            Log.e(AiliaVoiceSample.Companion.TAG, "Failed to get wave data: $getWaveResult")
                         }
                     }
                 } else {
-                    Log.e(TAG, "Failed to get wave info")
+                    Log.e(AiliaVoiceSample.Companion.TAG, "Failed to get wave info")
                 }
             }
 
         } catch (e: Exception) {
-            Log.e(TAG, "Exception during sample execution", e)
+            Log.e(AiliaVoiceSample.Companion.TAG, "Exception during sample execution", e)
         } finally {
-            Log.d(TAG, "ailia Voice instance closed")
+            Log.d(AiliaVoiceSample.Companion.TAG, "ailia Voice instance closed")
         }
 
-        Log.d(TAG, "ailia Voice JNI sample completed")
+        Log.d(AiliaVoiceSample.Companion.TAG, "ailia Voice JNI sample completed")
     }
+
+    fun playWave(waveBuffer: FloatArray, channels: Int, samplingRate: Int) {
+        try {
+            // チャンネル設定
+            val channelConfig = if (channels == 1)
+                AudioFormat.CHANNEL_OUT_MONO
+            else
+                AudioFormat.CHANNEL_OUT_STEREO
+
+            // Float(-1.0〜1.0) → 16bit PCM(Short) へ変換
+            val pcm16 = ShortArray(waveBuffer.size) { i ->
+                val f = waveBuffer[i].coerceIn(-1.0f, 1.0f)
+                (f * Short.MAX_VALUE).roundToInt().toShort()
+            }
+
+            // AudioTrack のバッファサイズ計算
+            val bufferSize = AudioTrack.getMinBufferSize(
+                samplingRate,
+                channelConfig,
+                AudioFormat.ENCODING_PCM_16BIT
+            )
+
+            // AudioTrack 作成
+            val audioTrack = AudioTrack.Builder()
+                .setAudioAttributes(
+                    AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_MEDIA)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                        .build()
+                )
+                .setAudioFormat(
+                    AudioFormat.Builder()
+                        .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
+                        .setSampleRate(samplingRate)
+                        .setChannelMask(channelConfig)
+                        .build()
+                )
+                .setBufferSizeInBytes(bufferSize)
+                .build()
+
+            // データ書き込み
+            val written = audioTrack.write(pcm16, 0, pcm16.size, AudioTrack.WRITE_BLOCKING)
+            Log.d("WavePlayer", "Wrote $written samples")
+
+            // 再生開始
+            audioTrack.play()
+
+            // 再生が終わるまで待機 (簡易)
+            val durationSec = pcm16.size.toFloat() / (samplingRate * channels)
+            Thread.sleep((durationSec * 1000).toLong())
+
+            audioTrack.stop()
+            audioTrack.release()
+
+        } catch (e: Exception) {
+            Log.e("WavePlayer", "Failed to play wave: ${e.message}", e)
+        }
+    }
+
 }
