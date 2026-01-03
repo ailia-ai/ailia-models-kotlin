@@ -116,19 +116,11 @@ class AiliaVoiceSample {
             voice = AiliaVoice()
 
             val dir: String = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS).absolutePath
-            val status = voice?.openDictionaryFile(path = dir, dictionaryType = AILIA_VOICE_DICTIONARY_TYPE_OPEN_JTALK)
-            if (status!! != 0) {
-                Log.e(AiliaVoiceSample.Companion.TAG, "Failed to openDictionaryFile")
-                false
-            }
+            voice?.openDictionaryFile(path = dir, dictionaryType = AILIA_VOICE_DICTIONARY_TYPE_OPEN_JTALK)
 
-            val status2 =voice?.openModelFile(encoder = encoderPath, decoder1 = decoderPath, decoder2 = postnetPath, wave = waveglowPath, ssl = sslPath,
-                              modelType = AILIA_VOICE_MODEL_TYPE_GPT_SOVITS,
-                              cleanerType = AILIA_VOICE_CLEANER_TYPE_BASIC)
-            if (status2!! != 0) {
-                Log.e(AiliaVoiceSample.Companion.TAG, "Failed to openModelFile")
-                false
-            }
+            voice?.openModelFile(encoder = encoderPath, decoder1 = decoderPath, decoder2 = postnetPath, wave = waveglowPath, ssl = sslPath,
+                          modelType = AILIA_VOICE_MODEL_TYPE_GPT_SOVITS,
+                          cleanerType = AILIA_VOICE_CLEANER_TYPE_BASIC)
 
             isInitialized = true
             Log.i(AiliaVoiceSample.Companion.TAG, "Voice initialized successfully")
@@ -160,48 +152,19 @@ class AiliaVoiceSample {
         }
 
         try {
-            val testText = "こんにちは、世界"
-            Log.d(AiliaVoiceSample.Companion.TAG, "Processing text: $testText")
-            voice?.setReferenceAudio(audio, audio.size * 4, channels, sampleRate, voice?.g2p(refText)!!)
+            val refG2pText = voice?.g2p(refText)!!;
+            Log.d(AiliaVoiceSample.Companion.TAG, "Ref text: $refText")
+            Log.d(AiliaVoiceSample.Companion.TAG, "Ref Features: $refG2pText")
+            voice?.setReferenceAudio(audio, audio.size * 4, channels, sampleRate, refG2pText)
 
+            val testText = "こんにちは、世界"
+            Log.d(AiliaVoiceSample.Companion.TAG, "Text: $testText")
             val g2pText = voice?.g2p(testText)!!;
             Log.d(AiliaVoiceSample.Companion.TAG, "Features: $g2pText")
-            val inferenceResult = voice?.inference(g2pText)
-            if (inferenceResult != AiliaVoice.AILIA_STATUS_SUCCESS) {
-                Log.e(AiliaVoiceSample.Companion.TAG, "Failed to perform inference: $inferenceResult")
-                val errorDetail = voice?.getErrorDetail()
-                if (errorDetail != null) {
-                    Log.e(AiliaVoiceSample.Companion.TAG, "Error detail: $errorDetail")
-                }
-            } else {
-                Log.d(AiliaVoiceSample.Companion.TAG, "Inference successful")
 
-                val waveInfo = voice?.getWaveInfo()
-                if (waveInfo != null && waveInfo.size >= 3) {
-                    val samples = waveInfo[0]
-                    val channels = waveInfo[1]
-                    val samplingRate = waveInfo[2]
-
-                    Log.d(AiliaVoiceSample.Companion.TAG, "Wave info - Samples: $samples, Channels: $channels, Sampling rate: $samplingRate")
-
-                    if (samples > 0) {
-                        val bufferSize = samples * channels * 4
-                        val waveBuffer = FloatArray(samples * channels)
-
-                        val getWaveResult = voice?.getWave(waveBuffer, bufferSize)
-                        if (getWaveResult == AiliaVoice.AILIA_STATUS_SUCCESS) {
-                            Log.d(AiliaVoiceSample.Companion.TAG, "Successfully retrieved wave data (${waveBuffer.size} samples)")
-                            Log.d(AiliaVoiceSample.Companion.TAG, "First few samples: ${waveBuffer.take(10).joinToString(", ")}")
-                            playWave(waveBuffer, channels, samplingRate)
-                        } else {
-                            Log.e(AiliaVoiceSample.Companion.TAG, "Failed to get wave data: $getWaveResult")
-                        }
-                    }
-                } else {
-                    Log.e(AiliaVoiceSample.Companion.TAG, "Failed to get wave info")
-                }
-            }
-
+            Log.d(AiliaVoiceSample.Companion.TAG, "Inference run")
+            val inferenceResult : AiliaVoice.AudioData = voice?.inference(g2pText)!!
+            playWave(inferenceResult.data, inferenceResult.channels, inferenceResult.samplingRate)
         } catch (e: Exception) {
             Log.e(AiliaVoiceSample.Companion.TAG, "Exception during sample execution", e)
         } finally {

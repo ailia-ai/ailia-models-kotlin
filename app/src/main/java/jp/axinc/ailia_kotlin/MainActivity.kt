@@ -22,12 +22,9 @@ import axip.ailia.*
 import axip.ailia_tflite.*
 import java.io.*
 import java.nio.ByteBuffer
-import java.nio.ByteOrder
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
-import android.graphics.ImageFormat;
-import android.graphics.YuvImage;
 
 class MainActivity : AppCompatActivity() {
     private lateinit var cameraExecutor: ExecutorService
@@ -726,8 +723,6 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-
-
     private fun allPermissionsGranted() = REQUIRED_PERMISSIONS.all {
         ContextCompat.checkSelfPermission(baseContext, it) == PackageManager.PERMISSION_GRANTED
     }
@@ -771,6 +766,4 @@ class MainActivity : AppCompatActivity() {
         val resources = this.resources
         resources.openRawResource(resourceId).use { `in` -> return inputStreamToByteArray(`in`) }
     }
-
-
 }
