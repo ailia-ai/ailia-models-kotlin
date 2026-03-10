@@ -71,7 +71,6 @@ class MainActivity : AppCompatActivity() {
         TEXT_TO_SPEECH_V2,
         TEXT_TO_SPEECH_V3,
         TEXT_TO_SPEECH_V2_PRO,
-        TEXT_TO_SPEECH_ZH,
     }
 
     companion object {
@@ -125,7 +124,6 @@ class MainActivity : AppCompatActivity() {
             "Text2Speech_V2",
             "Text2Speech_V3",
             "Text2Speech_V2Pro",
-            "Text2Speech_ZH",
         )
 
         val adapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, algorithms)
@@ -325,22 +323,6 @@ class MainActivity : AppCompatActivity() {
                 inferenceTime
             }
 
-            AlgorithmType.TEXT_TO_SPEECH_ZH -> {
-                var refAudio: AudioUtil.WavFileData = AudioUtil().loadRawAudio(this.resources.openRawResource(R.raw.reference_audio_girl))
-                var inferenceTime = voiceSample.textToSpeech(
-                    refAudio.audioData,
-                    refAudio.channels,
-                    refAudio.sampleRate,
-                    "水をマレーシアから買わなくてはならない。",
-                    "ja",
-                    "今天天气真好。",
-                    "zh",
-                )
-                runOnUiThread {
-                    classificationResultTextView.text = "Voice ZH Generated"
-                }
-                inferenceTime
-            }
         }
     }
 
@@ -410,8 +392,7 @@ class MainActivity : AppCompatActivity() {
             AlgorithmType.TEXT_TO_SPEECH,
             AlgorithmType.TEXT_TO_SPEECH_V2,
             AlgorithmType.TEXT_TO_SPEECH_V3,
-            AlgorithmType.TEXT_TO_SPEECH_V2_PRO,
-            AlgorithmType.TEXT_TO_SPEECH_ZH -> {
+            AlgorithmType.TEXT_TO_SPEECH_V2_PRO -> {
                 imageView.visibility = View.GONE
                 cameraPreviewView.visibility = View.GONE
                 resultScrollView.visibility = View.VISIBLE
@@ -589,10 +570,6 @@ class MainActivity : AppCompatActivity() {
                     isInitialized = voiceSample.initializeVoice()
                 }
 
-                AlgorithmType.TEXT_TO_SPEECH_ZH -> {
-                    voiceSample.modelType = VoiceModelType.GPT_SOVITS_V3
-                    isInitialized = voiceSample.initializeVoice()
-                }
             }
 
             if (isInitialized) {

@@ -166,16 +166,9 @@ class AiliaVoiceSample {
 
             downloadJapaneseDictionary()
             downloadEnglishDictionary()
+            downloadChineseDictionary()
+            downloadG2pwDictionary()
             downloadUserDictionary()
-
-            val needsChinese = modelType == VoiceModelType.GPT_SOVITS_V2 ||
-                    modelType == VoiceModelType.GPT_SOVITS_V3 ||
-                    modelType == VoiceModelType.GPT_SOVITS_V2_PRO
-
-            if (needsChinese) {
-                downloadChineseDictionary()
-                downloadG2pwDictionary()
-            }
 
             when (modelType) {
                 VoiceModelType.GPT_SOVITS_V1 -> downloadModelV1()
@@ -196,11 +189,8 @@ class AiliaVoiceSample {
             voice?.setUserDictionaryFile(path = "${dir}/user.dict", AILIA_VOICE_DICTIONARY_TYPE_OPEN_JTALK)
             voice?.openDictionaryFile(path = dir, dictionaryType = AILIA_VOICE_DICTIONARY_TYPE_OPEN_JTALK)
             voice?.openDictionaryFile(path = dir, dictionaryType = AILIA_VOICE_DICTIONARY_TYPE_G2P_EN)
-
-            if (needsChinese) {
-                voice?.openDictionaryFile(path = "${dir}/g2p_cn", dictionaryType = AILIA_VOICE_DICTIONARY_TYPE_G2P_CN)
-                voice?.openDictionaryFile(path = "${dir}/g2pw", dictionaryType = AILIA_VOICE_DICTIONARY_TYPE_G2PW)
-            }
+            voice?.openDictionaryFile(path = "${dir}/g2p_cn", dictionaryType = AILIA_VOICE_DICTIONARY_TYPE_G2P_CN)
+            voice?.openDictionaryFile(path = "${dir}/g2pw", dictionaryType = AILIA_VOICE_DICTIONARY_TYPE_G2PW)
 
             when (modelType) {
                 VoiceModelType.GPT_SOVITS_V1 -> {
