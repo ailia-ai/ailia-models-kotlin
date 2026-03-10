@@ -68,6 +68,10 @@ class MainActivity : AppCompatActivity() {
         CLASSIFICATION,
         SPEECH_TO_TEXT,
         TEXT_TO_SPEECH,
+        TEXT_TO_SPEECH_V2,
+        TEXT_TO_SPEECH_V3,
+        TEXT_TO_SPEECH_V2_PRO,
+        TEXT_TO_SPEECH_ZH,
     }
 
     companion object {
@@ -118,6 +122,10 @@ class MainActivity : AppCompatActivity() {
             "Classification",
             "Speech2Text",
             "Text2Speech",
+            "Text2Speech_V2",
+            "Text2Speech_V3",
+            "Text2Speech_V2Pro",
+            "Text2Speech_ZH",
         )
 
         val adapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, algorithms)
@@ -261,7 +269,75 @@ class MainActivity : AppCompatActivity() {
                     "en",
                 )
                 runOnUiThread {
-                    classificationResultTextView.text = "Voice Generated"
+                    classificationResultTextView.text = "Voice V1 Generated"
+                }
+                inferenceTime
+            }
+
+            AlgorithmType.TEXT_TO_SPEECH_V2 -> {
+                var refAudio: AudioUtil.WavFileData = AudioUtil().loadRawAudio(this.resources.openRawResource(R.raw.reference_audio_girl))
+                var inferenceTime = voiceSample.textToSpeech(
+                    refAudio.audioData,
+                    refAudio.channels,
+                    refAudio.sampleRate,
+                    "水をマレーシアから買わなくてはならない。",
+                    "ja",
+                    "こんにちは。今日はいい天気ですね。",
+                    "ja",
+                )
+                runOnUiThread {
+                    classificationResultTextView.text = "Voice V2 Generated"
+                }
+                inferenceTime
+            }
+
+            AlgorithmType.TEXT_TO_SPEECH_V3 -> {
+                var refAudio: AudioUtil.WavFileData = AudioUtil().loadRawAudio(this.resources.openRawResource(R.raw.reference_audio_girl))
+                var inferenceTime = voiceSample.textToSpeech(
+                    refAudio.audioData,
+                    refAudio.channels,
+                    refAudio.sampleRate,
+                    "水をマレーシアから買わなくてはならない。",
+                    "ja",
+                    "こんにちは。今日はいい天気ですね。",
+                    "ja",
+                )
+                runOnUiThread {
+                    classificationResultTextView.text = "Voice V3 Generated"
+                }
+                inferenceTime
+            }
+
+            AlgorithmType.TEXT_TO_SPEECH_V2_PRO -> {
+                var refAudio: AudioUtil.WavFileData = AudioUtil().loadRawAudio(this.resources.openRawResource(R.raw.reference_audio_girl))
+                var inferenceTime = voiceSample.textToSpeech(
+                    refAudio.audioData,
+                    refAudio.channels,
+                    refAudio.sampleRate,
+                    "水をマレーシアから買わなくてはならない。",
+                    "ja",
+                    "こんにちは。今日はいい天気ですね。",
+                    "ja",
+                )
+                runOnUiThread {
+                    classificationResultTextView.text = "Voice V2-Pro Generated"
+                }
+                inferenceTime
+            }
+
+            AlgorithmType.TEXT_TO_SPEECH_ZH -> {
+                var refAudio: AudioUtil.WavFileData = AudioUtil().loadRawAudio(this.resources.openRawResource(R.raw.reference_audio_girl))
+                var inferenceTime = voiceSample.textToSpeech(
+                    refAudio.audioData,
+                    refAudio.channels,
+                    refAudio.sampleRate,
+                    "水をマレーシアから買わなくてはならない。",
+                    "ja",
+                    "今天天气真好。",
+                    "zh",
+                )
+                runOnUiThread {
+                    classificationResultTextView.text = "Voice ZH Generated"
                 }
                 inferenceTime
             }
@@ -331,7 +407,11 @@ class MainActivity : AppCompatActivity() {
                 findViewById<TextView>(R.id.tokenizerOutputLabel).visibility = View.GONE
             }
 
-            AlgorithmType.TEXT_TO_SPEECH -> {
+            AlgorithmType.TEXT_TO_SPEECH,
+            AlgorithmType.TEXT_TO_SPEECH_V2,
+            AlgorithmType.TEXT_TO_SPEECH_V3,
+            AlgorithmType.TEXT_TO_SPEECH_V2_PRO,
+            AlgorithmType.TEXT_TO_SPEECH_ZH -> {
                 imageView.visibility = View.GONE
                 cameraPreviewView.visibility = View.GONE
                 resultScrollView.visibility = View.VISIBLE
@@ -490,6 +570,27 @@ class MainActivity : AppCompatActivity() {
                 }
 
                 AlgorithmType.TEXT_TO_SPEECH -> {
+                    voiceSample.modelType = VoiceModelType.GPT_SOVITS_V1
+                    isInitialized = voiceSample.initializeVoice()
+                }
+
+                AlgorithmType.TEXT_TO_SPEECH_V2 -> {
+                    voiceSample.modelType = VoiceModelType.GPT_SOVITS_V2
+                    isInitialized = voiceSample.initializeVoice()
+                }
+
+                AlgorithmType.TEXT_TO_SPEECH_V3 -> {
+                    voiceSample.modelType = VoiceModelType.GPT_SOVITS_V3
+                    isInitialized = voiceSample.initializeVoice()
+                }
+
+                AlgorithmType.TEXT_TO_SPEECH_V2_PRO -> {
+                    voiceSample.modelType = VoiceModelType.GPT_SOVITS_V2_PRO
+                    isInitialized = voiceSample.initializeVoice()
+                }
+
+                AlgorithmType.TEXT_TO_SPEECH_ZH -> {
+                    voiceSample.modelType = VoiceModelType.GPT_SOVITS_V3
                     isInitialized = voiceSample.initializeVoice()
                 }
             }
