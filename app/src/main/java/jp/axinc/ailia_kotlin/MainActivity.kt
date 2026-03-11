@@ -835,37 +835,50 @@ class MainActivity : AppCompatActivity() {
                         runOnUiThread {
                             processingTimeTextView.text = "Downloading ONNX model..."
                         }
+                        Log.i("AILIA_Main", "ONNX ObjDet: submitting download task to cameraExecutor")
                         cameraExecutor.execute {
-                            val downloaded = onnxObjectDetectionSample.downloadModel(object : AiliaOnnxObjectDetectionSample.DownloadListener {
-                                override fun onProgress(fileName: String, bytesDownloaded: Long, totalBytes: Long) {
-                                    val percent = if (totalBytes > 0) (bytesDownloaded * 100 / totalBytes) else 0
-                                    runOnUiThread {
-                                        processingTimeTextView.text = "Downloading $fileName... $percent%"
+                            Log.i("AILIA_Main", "ONNX ObjDet: cameraExecutor task started")
+                            try {
+                                val downloaded = onnxObjectDetectionSample.downloadModel(object : AiliaOnnxObjectDetectionSample.DownloadListener {
+                                    override fun onProgress(fileName: String, bytesDownloaded: Long, totalBytes: Long) {
+                                        val percent = if (totalBytes > 0) (bytesDownloaded * 100 / totalBytes) else 0
+                                        runOnUiThread {
+                                            processingTimeTextView.text = "Downloading $fileName... $percent%"
+                                        }
                                     }
-                                }
-                                override fun onComplete() {}
-                                override fun onError(error: String) {
-                                    runOnUiThread {
-                                        processingTimeTextView.text = "Download error: $error"
+                                    override fun onComplete() {}
+                                    override fun onError(error: String) {
+                                        runOnUiThread {
+                                            processingTimeTextView.text = "Download error: $error"
+                                        }
                                     }
+                                })
+                                Log.i("AILIA_Main", "ONNX ObjDet: download result=$downloaded")
+                                if (downloaded) {
+                                    Log.i("AILIA_Main", "ONNX ObjDet: initializing with envId=$selectedEnvId")
+                                    val success = onnxObjectDetectionSample.initializeObjectDetection(selectedEnvId)
+                                    Log.i("AILIA_Main", "ONNX ObjDet: initialization result=$success")
+                                    isInitialized = success
+                                    isDownloadingModel.set(false)
+                                    runOnUiThread {
+                                        if (success) {
+                                            processingTimeTextView.text = "ONNX model ready"
+                                            if (modeRadioGroup.checkedRadioButtonId == R.id.imageRadioButton) {
+                                                processImageMode()
+                                            }
+                                        } else {
+                                            processingTimeTextView.text = "Failed to initialize ONNX model"
+                                        }
+                                    }
+                                } else {
+                                    isDownloadingModel.set(false)
                                 }
-                            })
-                            if (downloaded) {
-                                val success = onnxObjectDetectionSample.initializeObjectDetection(selectedEnvId)
-                                isInitialized = success
+                            } catch (e: Exception) {
+                                Log.e("AILIA_Main", "ONNX ObjDet: exception in cameraExecutor", e)
                                 isDownloadingModel.set(false)
                                 runOnUiThread {
-                                    if (success) {
-                                        processingTimeTextView.text = "ONNX model ready"
-                                        if (modeRadioGroup.checkedRadioButtonId == R.id.imageRadioButton) {
-                                            processImageMode()
-                                        }
-                                    } else {
-                                        processingTimeTextView.text = "Failed to initialize ONNX model"
-                                    }
+                                    processingTimeTextView.text = "Error: ${e.message}"
                                 }
-                            } else {
-                                isDownloadingModel.set(false)
                             }
                         }
                         return
@@ -886,37 +899,50 @@ class MainActivity : AppCompatActivity() {
                         runOnUiThread {
                             processingTimeTextView.text = "Downloading ONNX model..."
                         }
+                        Log.i("AILIA_Main", "ONNX Classification: submitting download task to cameraExecutor")
                         cameraExecutor.execute {
-                            val downloaded = onnxClassificationSample.downloadModel(object : AiliaOnnxClassificationSample.DownloadListener {
-                                override fun onProgress(fileName: String, bytesDownloaded: Long, totalBytes: Long) {
-                                    val percent = if (totalBytes > 0) (bytesDownloaded * 100 / totalBytes) else 0
-                                    runOnUiThread {
-                                        processingTimeTextView.text = "Downloading $fileName... $percent%"
+                            Log.i("AILIA_Main", "ONNX Classification: cameraExecutor task started")
+                            try {
+                                val downloaded = onnxClassificationSample.downloadModel(object : AiliaOnnxClassificationSample.DownloadListener {
+                                    override fun onProgress(fileName: String, bytesDownloaded: Long, totalBytes: Long) {
+                                        val percent = if (totalBytes > 0) (bytesDownloaded * 100 / totalBytes) else 0
+                                        runOnUiThread {
+                                            processingTimeTextView.text = "Downloading $fileName... $percent%"
+                                        }
                                     }
-                                }
-                                override fun onComplete() {}
-                                override fun onError(error: String) {
-                                    runOnUiThread {
-                                        processingTimeTextView.text = "Download error: $error"
+                                    override fun onComplete() {}
+                                    override fun onError(error: String) {
+                                        runOnUiThread {
+                                            processingTimeTextView.text = "Download error: $error"
+                                        }
                                     }
+                                })
+                                Log.i("AILIA_Main", "ONNX Classification: download result=$downloaded")
+                                if (downloaded) {
+                                    Log.i("AILIA_Main", "ONNX Classification: initializing with envId=$selectedEnvId")
+                                    val success = onnxClassificationSample.initializeClassification(selectedEnvId)
+                                    Log.i("AILIA_Main", "ONNX Classification: initialization result=$success")
+                                    isInitialized = success
+                                    isDownloadingModel.set(false)
+                                    runOnUiThread {
+                                        if (success) {
+                                            processingTimeTextView.text = "ONNX model ready"
+                                            if (modeRadioGroup.checkedRadioButtonId == R.id.imageRadioButton) {
+                                                processImageMode()
+                                            }
+                                        } else {
+                                            processingTimeTextView.text = "Failed to initialize ONNX model"
+                                        }
+                                    }
+                                } else {
+                                    isDownloadingModel.set(false)
                                 }
-                            })
-                            if (downloaded) {
-                                val success = onnxClassificationSample.initializeClassification(selectedEnvId)
-                                isInitialized = success
+                            } catch (e: Exception) {
+                                Log.e("AILIA_Main", "ONNX Classification: exception in cameraExecutor", e)
                                 isDownloadingModel.set(false)
                                 runOnUiThread {
-                                    if (success) {
-                                        processingTimeTextView.text = "ONNX model ready"
-                                        if (modeRadioGroup.checkedRadioButtonId == R.id.imageRadioButton) {
-                                            processImageMode()
-                                        }
-                                    } else {
-                                        processingTimeTextView.text = "Failed to initialize ONNX model"
-                                    }
+                                    processingTimeTextView.text = "Error: ${e.message}"
                                 }
-                            } else {
-                                isDownloadingModel.set(false)
                             }
                         }
                         return
@@ -940,38 +966,51 @@ class MainActivity : AppCompatActivity() {
                         runOnUiThread {
                             processingTimeTextView.text = "Downloading ONNX model..."
                         }
+                        Log.i("AILIA_Main", "ONNX Tracking: submitting download task to cameraExecutor")
                         cameraExecutor.execute {
-                            val downloaded = onnxObjectDetectionSample.downloadModel(object : AiliaOnnxObjectDetectionSample.DownloadListener {
-                                override fun onProgress(fileName: String, bytesDownloaded: Long, totalBytes: Long) {
-                                    val percent = if (totalBytes > 0) (bytesDownloaded * 100 / totalBytes) else 0
-                                    runOnUiThread {
-                                        processingTimeTextView.text = "Downloading $fileName... $percent%"
+                            Log.i("AILIA_Main", "ONNX Tracking: cameraExecutor task started")
+                            try {
+                                val downloaded = onnxObjectDetectionSample.downloadModel(object : AiliaOnnxObjectDetectionSample.DownloadListener {
+                                    override fun onProgress(fileName: String, bytesDownloaded: Long, totalBytes: Long) {
+                                        val percent = if (totalBytes > 0) (bytesDownloaded * 100 / totalBytes) else 0
+                                        runOnUiThread {
+                                            processingTimeTextView.text = "Downloading $fileName... $percent%"
+                                        }
                                     }
-                                }
-                                override fun onComplete() {}
-                                override fun onError(error: String) {
-                                    runOnUiThread {
-                                        processingTimeTextView.text = "Download error: $error"
+                                    override fun onComplete() {}
+                                    override fun onError(error: String) {
+                                        runOnUiThread {
+                                            processingTimeTextView.text = "Download error: $error"
+                                        }
                                     }
+                                })
+                                Log.i("AILIA_Main", "ONNX Tracking: download result=$downloaded")
+                                if (downloaded) {
+                                    Log.i("AILIA_Main", "ONNX Tracking: initializing with envId=$selectedEnvId")
+                                    val detectorSuccess = onnxObjectDetectionSample.initializeObjectDetection(selectedEnvId)
+                                    val trackerSuccess = if (detectorSuccess) trackerSample.initializeTracker() else false
+                                    Log.i("AILIA_Main", "ONNX Tracking: detector=$detectorSuccess, tracker=$trackerSuccess")
+                                    isInitialized = trackerSuccess
+                                    isDownloadingModel.set(false)
+                                    runOnUiThread {
+                                        if (trackerSuccess) {
+                                            processingTimeTextView.text = "ONNX model ready"
+                                            if (modeRadioGroup.checkedRadioButtonId == R.id.imageRadioButton) {
+                                                processImageMode()
+                                            }
+                                        } else {
+                                            processingTimeTextView.text = "Failed to initialize ONNX tracking"
+                                        }
+                                    }
+                                } else {
+                                    isDownloadingModel.set(false)
                                 }
-                            })
-                            if (downloaded) {
-                                val detectorSuccess = onnxObjectDetectionSample.initializeObjectDetection(selectedEnvId)
-                                val trackerSuccess = if (detectorSuccess) trackerSample.initializeTracker() else false
-                                isInitialized = trackerSuccess
+                            } catch (e: Exception) {
+                                Log.e("AILIA_Main", "ONNX Tracking: exception in cameraExecutor", e)
                                 isDownloadingModel.set(false)
                                 runOnUiThread {
-                                    if (trackerSuccess) {
-                                        processingTimeTextView.text = "ONNX model ready"
-                                        if (modeRadioGroup.checkedRadioButtonId == R.id.imageRadioButton) {
-                                            processImageMode()
-                                        }
-                                    } else {
-                                        processingTimeTextView.text = "Failed to initialize ONNX tracking"
-                                    }
+                                    processingTimeTextView.text = "Error: ${e.message}"
                                 }
-                            } else {
-                                isDownloadingModel.set(false)
                             }
                         }
                         return

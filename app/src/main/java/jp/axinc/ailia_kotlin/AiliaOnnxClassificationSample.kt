@@ -36,7 +36,16 @@ class AiliaOnnxClassificationSample {
     private fun downloadFile(urlStr: String, fileName: String, listener: DownloadListener? = null): Boolean {
         val dir = modelDirectory()
         val path = "$dir/$fileName"
-        if (File(path).exists()) return true
+        val file = File(path)
+        if (file.exists()) {
+            if (file.canRead()) {
+                Log.i(TAG, "Model file already exists and readable: $path (${file.length()} bytes)")
+                return true
+            } else {
+                Log.w(TAG, "Model file exists but not readable, re-downloading: $path")
+                file.delete()
+            }
+        }
         File(path).parentFile?.mkdirs()
         val tmpFile = File("$path.tmp")
         val url = URL(urlStr)
@@ -63,9 +72,11 @@ class AiliaOnnxClassificationSample {
 
     fun downloadModel(listener: DownloadListener? = null): Boolean {
         try {
+            Log.i(TAG, "Starting ONNX classification model download/check...")
             downloadFile(PROTO_URL, PROTO_FILE, listener)
             downloadFile(MODEL_URL, MODEL_FILE, listener)
             listener?.onComplete()
+            Log.i(TAG, "ONNX classification model download/check complete")
             return true
         } catch (e: Exception) {
             Log.e(TAG, "Model Download Failed: $MODEL_FILE", e)
