@@ -35,6 +35,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var algorithmSpinner: Spinner
     private lateinit var envSpinner: Spinner
     private lateinit var envLabel: TextView
+    private lateinit var runtimeSpinner: Spinner
+    private lateinit var runtimeLabel: TextView
     private lateinit var processingTimeTextView: TextView
     private lateinit var resultScrollView: ScrollView
     private lateinit var classificationResultTextView: TextView
@@ -62,8 +64,11 @@ class MainActivity : AppCompatActivity() {
     private var voiceSample = AiliaVoiceSample()
     private var llmSample = AiliaLLMSample()
     private var multimodalLLMSample = AiliaMultimodalLLMSample()
+    private var onnxObjectDetectionSample = AiliaOnnxObjectDetectionSample()
+    private var onnxClassificationSample = AiliaOnnxClassificationSample()
 
     private var selectedEnvId: Int = 0
+    private var selectedRuntime: String = "TFLite"
     private var ailiaEnvironments: List<AiliaEnvironment>? = null
     private var isInitialized = false
     private var currentAlgorithm = AlgorithmType.POSE_ESTIMATION
@@ -73,6 +78,7 @@ class MainActivity : AppCompatActivity() {
     private var isWaitAlgorithmSwitch = AtomicBoolean(false)
     private var isWaitModeSwitch = AtomicBoolean(false)
     private var isStopCamera = AtomicBoolean(false)
+    private var isDownloadingModel = AtomicBoolean(false)
 
     private var imageAnalyzer: ImageAnalysis? = null
     private var camera: Camera? = null
@@ -127,6 +133,8 @@ class MainActivity : AppCompatActivity() {
         algorithmSpinner = findViewById(R.id.algorithmSpinner)
         envSpinner = findViewById(R.id.envSpinner)
         envLabel = findViewById(R.id.envLabel)
+        runtimeSpinner = findViewById(R.id.runtimeSpinner)
+        runtimeLabel = findViewById(R.id.runtimeLabel)
         processingTimeTextView = findViewById(R.id.processingTimeTextView)
         resultScrollView = findViewById(R.id.resultScrollView)
         classificationResultTextView = findViewById(R.id.classificationResultTextView)
@@ -171,6 +179,7 @@ class MainActivity : AppCompatActivity() {
                 id: Long
             ) {
                 val newAlgorithm = AlgorithmType.values()[position]
+                updateRuntimeSpinner(newAlgorithm)
                 updateEnvSpinner(newAlgorithm)
                 if (newAlgorithm != currentAlgorithm) {
                     switchAlgorithm(newAlgorithm)
@@ -237,31 +246,114 @@ class MainActivity : AppCompatActivity() {
             }
 
             AlgorithmType.OBJECT_DETECTION, AlgorithmType.CLASSIFICATION, AlgorithmType.TRACKING -> {
-                // TFLite: Reference (CPU) と NNAPI を表示
-                val tfliteEnvNames = arrayOf("Reference (CPU)", "NNAPI")
-                val tfliteEnvIds = intArrayOf(AiliaTFLite.AILIA_TFLITE_ENV_REFERENCE, AiliaTFLite.AILIA_TFLITE_ENV_NNAPI)
-                val adapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, tfliteEnvNames)
-                adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
-                envSpinner.adapter = adapter
+                if (selectedRuntime == "ONNX") {
+                    // ailia SDK: 利用可能な環境リストを表示
+                    try {
+                        if (ailiaEnvironments == null) {
+                            Ailia.SetTemporaryCachePath(cacheDir.absolutePath)
+                            ailiaEnvironments = AiliaModel.getEnvironments()
+                        }
+                        val envNames = ailiaEnvironments!!.map { "${it.name} (id:${it.id})" }.toTypedArray()
+                        val adapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, envNames)
+                        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+                        envSpinner.adapter = adapter
 
-                // デフォルトは NNAPI
-                envSpinner.setSelection(1)
-                selectedEnvId = AiliaTFLite.AILIA_TFLITE_ENV_NNAPI
+                        var defaultIndex = 0
+                        for ((index, env) in ailiaEnvironments!!.withIndex()) {
+                            if (env.type == AiliaEnvironment.TYPE_GPU && env.props and AiliaEnvironment.PROPERTY_FP16 == 0) {
+                                defaultIndex = index
+                                break
+                            }
+                        }
+                        envSpinner.setSelection(defaultIndex)
+                        selectedEnvId = ailiaEnvironments!![defaultIndex].id
 
-                envSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
-                    override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
-                        selectedEnvId = tfliteEnvIds[position]
+                        envSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+                            override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
+                                selectedEnvId = ailiaEnvironments!![position].id
+                            }
+                            override fun onNothingSelected(parent: AdapterView<*>?) {}
+                        }
+
+                        envLabel.visibility = View.VISIBLE
+                        envSpinner.visibility = View.VISIBLE
+                    } catch (e: Exception) {
+                        Log.e("AILIA_Main", "Failed to get ailia environments: ${e.message}")
+                        envLabel.visibility = View.GONE
+                        envSpinner.visibility = View.GONE
                     }
-                    override fun onNothingSelected(parent: AdapterView<*>?) {}
-                }
+                } else {
+                    // TFLite: Reference (CPU) と NNAPI を表示
+                    val tfliteEnvNames = arrayOf("Reference (CPU)", "NNAPI")
+                    val tfliteEnvIds = intArrayOf(AiliaTFLite.AILIA_TFLITE_ENV_REFERENCE, AiliaTFLite.AILIA_TFLITE_ENV_NNAPI)
+                    val adapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, tfliteEnvNames)
+                    adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+                    envSpinner.adapter = adapter
 
-                envLabel.visibility = View.VISIBLE
-                envSpinner.visibility = View.VISIBLE
+                    // デフォルトは NNAPI
+                    envSpinner.setSelection(1)
+                    selectedEnvId = AiliaTFLite.AILIA_TFLITE_ENV_NNAPI
+
+                    envSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+                        override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
+                            selectedEnvId = tfliteEnvIds[position]
+                        }
+                        override fun onNothingSelected(parent: AdapterView<*>?) {}
+                    }
+
+                    envLabel.visibility = View.VISIBLE
+                    envSpinner.visibility = View.VISIBLE
+                }
             }
 
             else -> {
                 envLabel.visibility = View.GONE
                 envSpinner.visibility = View.GONE
+            }
+        }
+    }
+
+    private fun updateRuntimeSpinner(algorithm: AlgorithmType) {
+        when (algorithm) {
+            AlgorithmType.OBJECT_DETECTION, AlgorithmType.CLASSIFICATION, AlgorithmType.TRACKING -> {
+                val runtimes = arrayOf("TFLite", "ONNX")
+                val adapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, runtimes)
+                adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+                runtimeSpinner.adapter = adapter
+
+                val defaultIndex = if (selectedRuntime == "ONNX") 1 else 0
+                runtimeSpinner.setSelection(defaultIndex)
+
+                runtimeSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+                    override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
+                        val newRuntime = runtimes[position]
+                        if (newRuntime != selectedRuntime) {
+                            selectedRuntime = newRuntime
+                            updateEnvSpinner(algorithm)
+                            // Runtime変更時に再初期化
+                            if (isInitialized) {
+                                releaseCurrentAlgorithm()
+                                isInitialized = false
+                                isDownloadingModel.set(false)
+                                processImageMode()
+                            }
+                        }
+                    }
+                    override fun onNothingSelected(parent: AdapterView<*>?) {}
+                }
+
+                runtimeLabel.visibility = View.VISIBLE
+                runtimeSpinner.visibility = View.VISIBLE
+            }
+            AlgorithmType.POSE_ESTIMATION -> {
+                // PoseEstimation は ONNX 固定
+                selectedRuntime = "ONNX"
+                runtimeLabel.visibility = View.GONE
+                runtimeSpinner.visibility = View.GONE
+            }
+            else -> {
+                runtimeLabel.visibility = View.GONE
+                runtimeSpinner.visibility = View.GONE
             }
         }
     }
@@ -295,23 +387,33 @@ class MainActivity : AppCompatActivity() {
             }
 
             AlgorithmType.OBJECT_DETECTION -> {
-                objectDetectionSample.processObjectDetection(
-                    bitmap,
-                    canvas,
-                    paint2,
-                    textPaint,
-                    w,
-                    h
-                )
+                if (selectedRuntime == "ONNX") {
+                    onnxObjectDetectionSample.processObjectDetection(
+                        img, bitmap, canvas, paint2, textPaint, w, h
+                    )
+                } else {
+                    objectDetectionSample.processObjectDetection(
+                        bitmap, canvas, paint2, textPaint, w, h
+                    )
+                }
             }
 
             AlgorithmType.CLASSIFICATION -> {
-                val time = classificationSample.processClassification(bitmap)
-                val result = classificationSample.getLastClassificationResult()
-                runOnUiThread {
-                    classificationResultTextView.text = "Classification Result: $result"
+                if (selectedRuntime == "ONNX") {
+                    val time = onnxClassificationSample.processClassification(img, w, h)
+                    val result = onnxClassificationSample.getLastClassificationResult()
+                    runOnUiThread {
+                        classificationResultTextView.text = "Classification Result: $result"
+                    }
+                    time
+                } else {
+                    val time = classificationSample.processClassification(bitmap)
+                    val result = classificationSample.getLastClassificationResult()
+                    runOnUiThread {
+                        classificationResultTextView.text = "Classification Result: $result"
+                    }
+                    time
                 }
-                time
             }
 
             AlgorithmType.TOKENIZE -> {
@@ -326,28 +428,35 @@ class MainActivity : AppCompatActivity() {
             }
 
             AlgorithmType.TRACKING -> {
-                // First run object detection to get detection results without drawing
-                val detectionTime = objectDetectionSample.processObjectDetectionWithoutDrawing(
-                    bitmap,
-                    w,
-                    h,
-                    threshold = 0.1f,
-                    iou = 1.0f
-                )
-                val detectionResults = objectDetectionSample.getDetectionResults(bitmap)
-                // Then run tracking with the detection results and draw the tracking results
-                val trackingTime = trackerSample.processTrackingWithDetections(
-                    canvas,
-                    paint2,
-                    w,
-                    h,
-                    detectionResults
-                )
-                val trackingInfo = trackerSample.getLastTrackingResult()
-                runOnUiThread {
-                    trackingResultTextView.text = "Tracking Results: $trackingInfo"
+                if (selectedRuntime == "ONNX") {
+                    val detectionTime = onnxObjectDetectionSample.processObjectDetectionWithoutDrawing(
+                        img, w, h, threshold = 0.1f, iou = 1.0f
+                    )
+                    val detectionResults = onnxObjectDetectionSample.getDetectionResults()
+                    val trackingTime = trackerSample.processTrackingWithDetections(
+                        canvas, paint2, w, h, detectionResults
+                    )
+                    val trackingInfo = trackerSample.getLastTrackingResult()
+                    runOnUiThread {
+                        trackingResultTextView.text = "Tracking Results: $trackingInfo"
+                    }
+                    detectionTime + trackingTime
+                } else {
+                    // First run object detection to get detection results without drawing
+                    val detectionTime = objectDetectionSample.processObjectDetectionWithoutDrawing(
+                        bitmap, w, h, threshold = 0.1f, iou = 1.0f
+                    )
+                    val detectionResults = objectDetectionSample.getDetectionResults(bitmap)
+                    // Then run tracking with the detection results and draw the tracking results
+                    val trackingTime = trackerSample.processTrackingWithDetections(
+                        canvas, paint2, w, h, detectionResults
+                    )
+                    val trackingInfo = trackerSample.getLastTrackingResult()
+                    runOnUiThread {
+                        trackingResultTextView.text = "Tracking Results: $trackingInfo"
+                    }
+                    detectionTime + trackingTime
                 }
-                detectionTime + trackingTime
             }
 
             AlgorithmType.SPEECH_TO_TEXT -> {
@@ -614,6 +723,7 @@ class MainActivity : AppCompatActivity() {
         releaseCurrentAlgorithm()
         currentAlgorithm = newAlgorithm
         isInitialized = false
+        isDownloadingModel.set(false)
         // アルゴリズム切り替え時にProcessing Timeをリセット
         processingTimeTextView.text = "Processing Time: -- ms"
         updateUIVisibility()
@@ -628,6 +738,8 @@ class MainActivity : AppCompatActivity() {
             poseEstimatorSample.releasePoseEstimator()
             objectDetectionSample.releaseObjectDetection()
             classificationSample.releaseClassification()
+            onnxObjectDetectionSample.releaseObjectDetection()
+            onnxClassificationSample.releaseClassification()
             tokenizerSample.releaseTokenizer()
             trackerSample.releaseTracker()
             speechSample.releaseSpeech()
@@ -690,20 +802,104 @@ class MainActivity : AppCompatActivity() {
                 }
 
                 AlgorithmType.OBJECT_DETECTION -> {
-                    //val yoloxModel: ByteArray? = loadRawFile(R.raw.yolox_tiny)
-                    val yoloxModel: ByteArray? = loadRawFile(R.raw.yolox_s)
-                    isInitialized = objectDetectionSample.initializeObjectDetection(
-                        yoloxModel,
-                        env = selectedEnvId
-                    )
+                    if (selectedRuntime == "ONNX") {
+                        if (isDownloadingModel.get()) return
+                        isDownloadingModel.set(true)
+                        runOnUiThread {
+                            processingTimeTextView.text = "Downloading ONNX model..."
+                        }
+                        cameraExecutor.execute {
+                            val downloaded = onnxObjectDetectionSample.downloadModel(object : AiliaOnnxObjectDetectionSample.DownloadListener {
+                                override fun onProgress(fileName: String, bytesDownloaded: Long, totalBytes: Long) {
+                                    val percent = if (totalBytes > 0) (bytesDownloaded * 100 / totalBytes) else 0
+                                    runOnUiThread {
+                                        processingTimeTextView.text = "Downloading $fileName... $percent%"
+                                    }
+                                }
+                                override fun onComplete() {}
+                                override fun onError(error: String) {
+                                    runOnUiThread {
+                                        processingTimeTextView.text = "Download error: $error"
+                                    }
+                                }
+                            })
+                            if (downloaded) {
+                                val success = onnxObjectDetectionSample.initializeObjectDetection(selectedEnvId)
+                                isInitialized = success
+                                isDownloadingModel.set(false)
+                                runOnUiThread {
+                                    if (success) {
+                                        processingTimeTextView.text = "ONNX model ready"
+                                        if (modeRadioGroup.checkedRadioButtonId == R.id.imageRadioButton) {
+                                            processImageMode()
+                                        }
+                                    } else {
+                                        processingTimeTextView.text = "Failed to initialize ONNX model"
+                                    }
+                                }
+                            } else {
+                                isDownloadingModel.set(false)
+                            }
+                        }
+                        return
+                    } else {
+                        //val yoloxModel: ByteArray? = loadRawFile(R.raw.yolox_tiny)
+                        val yoloxModel: ByteArray? = loadRawFile(R.raw.yolox_s)
+                        isInitialized = objectDetectionSample.initializeObjectDetection(
+                            yoloxModel,
+                            env = selectedEnvId
+                        )
+                    }
                 }
 
                 AlgorithmType.CLASSIFICATION -> {
-                    val classificationModel: ByteArray? = loadRawFile(R.raw.mobilenetv2)
-                    isInitialized = classificationSample.initializeClassification(
-                        classificationModel,
-                        env = selectedEnvId
-                    )
+                    if (selectedRuntime == "ONNX") {
+                        if (isDownloadingModel.get()) return
+                        isDownloadingModel.set(true)
+                        runOnUiThread {
+                            processingTimeTextView.text = "Downloading ONNX model..."
+                        }
+                        cameraExecutor.execute {
+                            val downloaded = onnxClassificationSample.downloadModel(object : AiliaOnnxClassificationSample.DownloadListener {
+                                override fun onProgress(fileName: String, bytesDownloaded: Long, totalBytes: Long) {
+                                    val percent = if (totalBytes > 0) (bytesDownloaded * 100 / totalBytes) else 0
+                                    runOnUiThread {
+                                        processingTimeTextView.text = "Downloading $fileName... $percent%"
+                                    }
+                                }
+                                override fun onComplete() {}
+                                override fun onError(error: String) {
+                                    runOnUiThread {
+                                        processingTimeTextView.text = "Download error: $error"
+                                    }
+                                }
+                            })
+                            if (downloaded) {
+                                val success = onnxClassificationSample.initializeClassification(selectedEnvId)
+                                isInitialized = success
+                                isDownloadingModel.set(false)
+                                runOnUiThread {
+                                    if (success) {
+                                        processingTimeTextView.text = "ONNX model ready"
+                                        if (modeRadioGroup.checkedRadioButtonId == R.id.imageRadioButton) {
+                                            processImageMode()
+                                        }
+                                    } else {
+                                        processingTimeTextView.text = "Failed to initialize ONNX model"
+                                    }
+                                }
+                            } else {
+                                isDownloadingModel.set(false)
+                            }
+                        }
+                        return
+                    } else {
+                        val classificationModel: ByteArray? = loadRawFile(R.raw.mobilenetv2)
+                        isInitialized = classificationSample.initializeClassification(
+                            classificationModel,
+                            env = selectedEnvId
+                        )
+                    }
                 }
 
                 AlgorithmType.TOKENIZE -> {
@@ -711,14 +907,57 @@ class MainActivity : AppCompatActivity() {
                 }
 
                 AlgorithmType.TRACKING -> {
-                    //val yoloxModel: ByteArray? = loadRawFile(R.raw.yolox_tiny)
-                    val yoloxModel: ByteArray? = loadRawFile(R.raw.yolox_s)
-                    if (objectDetectionSample.initializeObjectDetection(
-                            yoloxModel,
-                            env = selectedEnvId
-                        )
-                    ) {
-                        isInitialized = trackerSample.initializeTracker()
+                    if (selectedRuntime == "ONNX") {
+                        if (isDownloadingModel.get()) return
+                        isDownloadingModel.set(true)
+                        runOnUiThread {
+                            processingTimeTextView.text = "Downloading ONNX model..."
+                        }
+                        cameraExecutor.execute {
+                            val downloaded = onnxObjectDetectionSample.downloadModel(object : AiliaOnnxObjectDetectionSample.DownloadListener {
+                                override fun onProgress(fileName: String, bytesDownloaded: Long, totalBytes: Long) {
+                                    val percent = if (totalBytes > 0) (bytesDownloaded * 100 / totalBytes) else 0
+                                    runOnUiThread {
+                                        processingTimeTextView.text = "Downloading $fileName... $percent%"
+                                    }
+                                }
+                                override fun onComplete() {}
+                                override fun onError(error: String) {
+                                    runOnUiThread {
+                                        processingTimeTextView.text = "Download error: $error"
+                                    }
+                                }
+                            })
+                            if (downloaded) {
+                                val detectorSuccess = onnxObjectDetectionSample.initializeObjectDetection(selectedEnvId)
+                                val trackerSuccess = if (detectorSuccess) trackerSample.initializeTracker() else false
+                                isInitialized = trackerSuccess
+                                isDownloadingModel.set(false)
+                                runOnUiThread {
+                                    if (trackerSuccess) {
+                                        processingTimeTextView.text = "ONNX model ready"
+                                        if (modeRadioGroup.checkedRadioButtonId == R.id.imageRadioButton) {
+                                            processImageMode()
+                                        }
+                                    } else {
+                                        processingTimeTextView.text = "Failed to initialize ONNX tracking"
+                                    }
+                                }
+                            } else {
+                                isDownloadingModel.set(false)
+                            }
+                        }
+                        return
+                    } else {
+                        //val yoloxModel: ByteArray? = loadRawFile(R.raw.yolox_tiny)
+                        val yoloxModel: ByteArray? = loadRawFile(R.raw.yolox_s)
+                        if (objectDetectionSample.initializeObjectDetection(
+                                yoloxModel,
+                                env = selectedEnvId
+                            )
+                        ) {
+                            isInitialized = trackerSample.initializeTracker()
+                        }
                     }
                 }
 
@@ -1010,6 +1249,16 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun processImageMode() {
+        // ONNX モードは非同期モデルダウンロードが必要
+        if (selectedRuntime == "ONNX" && (currentAlgorithm == AlgorithmType.OBJECT_DETECTION ||
+                    currentAlgorithm == AlgorithmType.CLASSIFICATION ||
+                    currentAlgorithm == AlgorithmType.TRACKING)) {
+            if (!isInitialized) {
+                initializeAilia()
+                return
+            }
+        }
+
         // TEXT_TO_SPEECHは非同期初期化のため、このメソッドでは処理しない
         if (currentAlgorithm == AlgorithmType.TEXT_TO_SPEECH) {
             if (!isInitialized) {
