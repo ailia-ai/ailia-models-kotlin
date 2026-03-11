@@ -52,6 +52,7 @@ dependencies {
     implementation project(':ailia-tflite-jni')
     implementation project(':ailia-tracker-jni')
     implementation project(':ailia-speech-jni')
+    implementation project(':ailia-audio-jni')
     implementation project(':ailia-voice-jni')
     implementation project(':ailia-llm-jni')
     testImplementation 'junit:junit:4.+'
