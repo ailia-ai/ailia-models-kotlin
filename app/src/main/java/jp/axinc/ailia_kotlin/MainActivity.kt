@@ -23,12 +23,9 @@ import axip.ailia_tflite.*
 import axip.ailia_llm.AiliaLLM
 import java.io.*
 import java.nio.ByteBuffer
-import java.nio.ByteOrder
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
-import android.graphics.ImageFormat;
-import android.graphics.YuvImage;
 
 class MainActivity : AppCompatActivity() {
     private lateinit var cameraExecutor: ExecutorService
@@ -42,6 +39,10 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tokenizerInputEditText: EditText
     private lateinit var tokenizerOutputTextView: TextView
     private lateinit var trackingResultTextView: TextView
+    private lateinit var voiceModelSpinner: Spinner
+    private lateinit var voiceStatusTextView: TextView
+    private lateinit var voiceGenerateButton: Button
+    private lateinit var voiceResultTextView: TextView
     private lateinit var llmInputLabel: TextView
     private lateinit var llmInputEditText: EditText
     private lateinit var llmSendButton: Button
@@ -56,9 +57,10 @@ class MainActivity : AppCompatActivity() {
     private var tokenizerSample = AiliaTokenizerSample()
     private var trackerSample = AiliaTrackerSample()
     private var speechSample = AiliaSpeechSample()
+    private var voiceSample = AiliaVoiceSample()
     private var llmSample = AiliaLLMSample()
     private var multimodalLLMSample = AiliaMultimodalLLMSample()
-    
+
     private var selectedEnv: AiliaEnvironment? = null
     private var isInitialized = false
     private var currentAlgorithm = AlgorithmType.POSE_ESTIMATION
@@ -72,6 +74,8 @@ class MainActivity : AppCompatActivity() {
     private var imageAnalyzer: ImageAnalysis? = null
     private var camera: Camera? = null
 
+    private var selectedVoiceModelType: VoiceModelType = VoiceModelType.GPT_SOVITS_V1
+
     enum class AlgorithmType {
         POSE_ESTIMATION,
         OBJECT_DETECTION,
@@ -79,10 +83,11 @@ class MainActivity : AppCompatActivity() {
         TOKENIZE,
         CLASSIFICATION,
         SPEECH_TO_TEXT,
+        TEXT_TO_SPEECH,
         LLM,
         MULTIMODAL_LLM,
     }
-    
+
     companion object {
         private const val REQUEST_CODE_PERMISSIONS = 10
         private val REQUIRED_PERMISSIONS = arrayOf(Manifest.permission.CAMERA)
@@ -111,7 +116,7 @@ class MainActivity : AppCompatActivity() {
             ActivityCompat.requestPermissions(this, REQUIRED_PERMISSIONS, REQUEST_CODE_PERMISSIONS)
         }
     }
-    
+
     private fun initializeViews() {
         imageView = findViewById(R.id.imageView)
         cameraPreviewView = findViewById(R.id.cameraPreviewView)
@@ -123,6 +128,10 @@ class MainActivity : AppCompatActivity() {
         tokenizerInputEditText = findViewById(R.id.tokenizerInputEditText)
         tokenizerOutputTextView = findViewById(R.id.tokenizerOutputTextView)
         trackingResultTextView = findViewById(R.id.trackingResultTextView)
+        voiceModelSpinner = findViewById(R.id.voiceModelSpinner)
+        voiceStatusTextView = findViewById(R.id.voiceStatusTextView)
+        voiceGenerateButton = findViewById(R.id.voiceGenerateButton)
+        voiceResultTextView = findViewById(R.id.voiceResultTextView)
         llmInputLabel = findViewById(R.id.llmInputLabel)
         llmInputEditText = findViewById(R.id.llmInputEditText)
         llmSendButton = findViewById(R.id.llmSendButton)
@@ -131,7 +140,7 @@ class MainActivity : AppCompatActivity() {
         llmStatusTextView = findViewById(R.id.llmStatusTextView)
         multimodalImageView = findViewById(R.id.multimodalImageView)
     }
-    
+
     private fun setupModeSelection() {
         val algorithms = arrayOf(
             "PoseEstimation",
@@ -139,17 +148,23 @@ class MainActivity : AppCompatActivity() {
             "Tracking",
             "Tokenize",
             "Classification",
+            "Speech2Text",
             "Text2Speech",
             "LLM",
             "MultimodalLLM",
         )
-        
+
         val adapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, algorithms)
         adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
         algorithmSpinner.adapter = adapter
 
         algorithmSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
-            override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
+            override fun onItemSelected(
+                parent: AdapterView<*>?,
+                view: View?,
+                position: Int,
+                id: Long
+            ) {
                 val newAlgorithm = AlgorithmType.values()[position]
                 if (newAlgorithm != currentAlgorithm) {
                     switchAlgorithm(newAlgorithm)
@@ -158,45 +173,61 @@ class MainActivity : AppCompatActivity() {
 
             override fun onNothingSelected(parent: AdapterView<*>?) {}
         }
-        
+
         modeRadioGroup.setOnCheckedChangeListener { _, checkedId ->
             when (checkedId) {
                 R.id.imageRadioButton -> {
                     switchToImageMode()
                 }
+
                 R.id.cameraRadioButton -> {
                     switchToCameraMode()
                 }
             }
         }
-        
+
         switchToImageMode()
     }
-    
-    private fun processAlgorithm(img: ByteArray, bitmap: Bitmap, canvas: Canvas, w: Int, h: Int): Long {
+
+    private fun processAlgorithm(
+        img: ByteArray,
+        bitmap: Bitmap,
+        canvas: Canvas,
+        w: Int,
+        h: Int
+    ): Long {
         val paint = Paint().apply {
             color = Color.WHITE
         }
-        
+
         val paint2 = Paint().apply {
             style = Paint.Style.STROKE
             color = Color.RED
             strokeWidth = 3f
         }
-        
+
         val textPaint = Paint().apply {
             color = Color.BLACK
             textSize = 30f
             isAntiAlias = true
         }
-        
+
         return when (currentAlgorithm) {
             AlgorithmType.POSE_ESTIMATION -> {
                 poseEstimatorSample.processPoseEstimation(img, canvas, paint, w, h)
             }
+
             AlgorithmType.OBJECT_DETECTION -> {
-                objectDetectionSample.processObjectDetection(bitmap, canvas, paint2, textPaint, w, h)
+                objectDetectionSample.processObjectDetection(
+                    bitmap,
+                    canvas,
+                    paint2,
+                    textPaint,
+                    w,
+                    h
+                )
             }
+
             AlgorithmType.CLASSIFICATION -> {
                 val time = classificationSample.processClassification(bitmap)
                 val result = classificationSample.getLastClassificationResult()
@@ -205,8 +236,10 @@ class MainActivity : AppCompatActivity() {
                 }
                 time
             }
+
             AlgorithmType.TOKENIZE -> {
-                val inputText = tokenizerInputEditText.text.toString().ifEmpty { "Hello world from ailia!" }
+                val inputText =
+                    tokenizerInputEditText.text.toString().ifEmpty { "Hello world from ailia!" }
                 val time = tokenizerSample.processTokenization(inputText)
                 val tokens = tokenizerSample.getLastTokenizationResult()
                 runOnUiThread {
@@ -214,26 +247,47 @@ class MainActivity : AppCompatActivity() {
                 }
                 time
             }
+
             AlgorithmType.TRACKING -> {
                 // First run object detection to get detection results without drawing
-                val detectionTime = objectDetectionSample.processObjectDetectionWithoutDrawing(bitmap, w, h, threshold = 0.1f, iou = 1.0f)
+                val detectionTime = objectDetectionSample.processObjectDetectionWithoutDrawing(
+                    bitmap,
+                    w,
+                    h,
+                    threshold = 0.1f,
+                    iou = 1.0f
+                )
                 val detectionResults = objectDetectionSample.getDetectionResults(bitmap)
                 // Then run tracking with the detection results and draw the tracking results
-                val trackingTime = trackerSample.processTrackingWithDetections(canvas, paint2, w, h, detectionResults)
+                val trackingTime = trackerSample.processTrackingWithDetections(
+                    canvas,
+                    paint2,
+                    w,
+                    h,
+                    detectionResults
+                )
                 val trackingInfo = trackerSample.getLastTrackingResult()
                 runOnUiThread {
                     trackingResultTextView.text = "Tracking Results: $trackingInfo"
                 }
                 detectionTime + trackingTime
             }
+
             AlgorithmType.SPEECH_TO_TEXT -> {
-                var audio : WavFileData = loadRawAudio(R.raw.demo)
-                var text : String = speechSample.process(audio.audioData, audio.channels, audio.sampleRate)
+                var audio: AudioUtil.WavFileData = AudioUtil().loadRawAudio(this.resources.openRawResource(R.raw.demo))
+                var text: String =
+                    speechSample.process(audio.audioData, audio.channels, audio.sampleRate)
                 runOnUiThread {
                     classificationResultTextView.text = "Speech Results: $text"
                 }
                 0
             }
+
+            AlgorithmType.TEXT_TO_SPEECH -> {
+                // Voice is handled asynchronously via the generate button
+                0
+            }
+
             AlgorithmType.LLM, AlgorithmType.MULTIMODAL_LLM -> {
                 // LLM modes are handled asynchronously via the send button
                 0
@@ -244,7 +298,7 @@ class MainActivity : AppCompatActivity() {
     private fun updateUIVisibility() {
         val isImageMode = modeRadioGroup.checkedRadioButtonId == R.id.imageRadioButton
         val isCameraMode = modeRadioGroup.checkedRadioButtonId == R.id.cameraRadioButton
-        
+
         when (currentAlgorithm) {
             AlgorithmType.TOKENIZE -> {
                 imageView.visibility = View.GONE
@@ -263,7 +317,13 @@ class MainActivity : AppCompatActivity() {
                 llmOutputLabel.visibility = View.GONE
                 llmOutputTextView.visibility = View.GONE
                 llmStatusTextView.visibility = View.GONE
+                findViewById<TextView>(R.id.voiceModelLabel).visibility = View.GONE
+                voiceModelSpinner.visibility = View.GONE
+                voiceStatusTextView.visibility = View.GONE
+                voiceGenerateButton.visibility = View.GONE
+                voiceResultTextView.visibility = View.GONE
             }
+
             AlgorithmType.CLASSIFICATION -> {
                 if (isImageMode) {
                     imageView.visibility = View.VISIBLE
@@ -286,7 +346,13 @@ class MainActivity : AppCompatActivity() {
                 llmOutputLabel.visibility = View.GONE
                 llmOutputTextView.visibility = View.GONE
                 llmStatusTextView.visibility = View.GONE
+                findViewById<TextView>(R.id.voiceModelLabel).visibility = View.GONE
+                voiceModelSpinner.visibility = View.GONE
+                voiceStatusTextView.visibility = View.GONE
+                voiceGenerateButton.visibility = View.GONE
+                voiceResultTextView.visibility = View.GONE
             }
+
             AlgorithmType.TRACKING -> {
                 if (isImageMode) {
                     imageView.visibility = View.VISIBLE
@@ -309,7 +375,13 @@ class MainActivity : AppCompatActivity() {
                 llmOutputLabel.visibility = View.GONE
                 llmOutputTextView.visibility = View.GONE
                 llmStatusTextView.visibility = View.GONE
+                findViewById<TextView>(R.id.voiceModelLabel).visibility = View.GONE
+                voiceModelSpinner.visibility = View.GONE
+                voiceStatusTextView.visibility = View.GONE
+                voiceGenerateButton.visibility = View.GONE
+                voiceResultTextView.visibility = View.GONE
             }
+
             AlgorithmType.SPEECH_TO_TEXT -> {
                 imageView.visibility = View.GONE
                 cameraPreviewView.visibility = View.GONE
@@ -327,6 +399,11 @@ class MainActivity : AppCompatActivity() {
                 llmOutputLabel.visibility = View.GONE
                 llmOutputTextView.visibility = View.GONE
                 llmStatusTextView.visibility = View.GONE
+                findViewById<TextView>(R.id.voiceModelLabel).visibility = View.GONE
+                voiceModelSpinner.visibility = View.GONE
+                voiceStatusTextView.visibility = View.GONE
+                voiceGenerateButton.visibility = View.GONE
+                voiceResultTextView.visibility = View.GONE
             }
             AlgorithmType.LLM -> {
                 imageView.visibility = View.GONE
@@ -345,6 +422,11 @@ class MainActivity : AppCompatActivity() {
                 llmOutputLabel.visibility = View.VISIBLE
                 llmOutputTextView.visibility = View.VISIBLE
                 llmStatusTextView.visibility = View.VISIBLE
+                findViewById<TextView>(R.id.voiceModelLabel).visibility = View.GONE
+                voiceModelSpinner.visibility = View.GONE
+                voiceStatusTextView.visibility = View.GONE
+                voiceGenerateButton.visibility = View.GONE
+                voiceResultTextView.visibility = View.GONE
                 // モード切り替え時にリセット
                 llmInputEditText.setText("Hello!")
                 llmOutputTextView.text = ""
@@ -368,12 +450,45 @@ class MainActivity : AppCompatActivity() {
                 llmOutputLabel.visibility = View.VISIBLE
                 llmOutputTextView.visibility = View.VISIBLE
                 llmStatusTextView.visibility = View.VISIBLE
+                findViewById<TextView>(R.id.voiceModelLabel).visibility = View.GONE
+                voiceModelSpinner.visibility = View.GONE
+                voiceStatusTextView.visibility = View.GONE
+                voiceGenerateButton.visibility = View.GONE
+                voiceResultTextView.visibility = View.GONE
                 // モード切り替え時にリセット
                 llmInputEditText.setText("What is in this image?")
                 llmOutputTextView.text = ""
                 llmStatusTextView.text = "Status: Initializing..."
                 llmSendButton.isEnabled = false
             }
+
+            AlgorithmType.TEXT_TO_SPEECH -> {
+                imageView.visibility = View.GONE
+                cameraPreviewView.visibility = View.GONE
+                resultScrollView.visibility = View.VISIBLE
+                classificationResultTextView.visibility = View.GONE
+                tokenizerInputEditText.visibility = View.GONE
+                tokenizerOutputTextView.visibility = View.GONE
+                trackingResultTextView.visibility = View.GONE
+                findViewById<TextView>(R.id.tokenizerInputLabel).visibility = View.GONE
+                findViewById<TextView>(R.id.tokenizerOutputLabel).visibility = View.GONE
+                multimodalImageView.visibility = View.GONE
+                llmInputLabel.visibility = View.GONE
+                llmInputEditText.visibility = View.GONE
+                llmSendButton.visibility = View.GONE
+                llmOutputLabel.visibility = View.GONE
+                llmOutputTextView.visibility = View.GONE
+                llmStatusTextView.visibility = View.GONE
+                findViewById<TextView>(R.id.voiceModelLabel).visibility = View.VISIBLE
+                voiceModelSpinner.visibility = View.VISIBLE
+                voiceStatusTextView.visibility = View.VISIBLE
+                voiceGenerateButton.visibility = View.VISIBLE
+                voiceResultTextView.visibility = View.VISIBLE
+                voiceGenerateButton.isEnabled = false
+                voiceResultTextView.text = ""
+                voiceStatusTextView.text = "Status: Initializing..."
+            }
+
             else -> {
                 if (isImageMode) {
                     imageView.visibility = View.VISIBLE
@@ -396,20 +511,28 @@ class MainActivity : AppCompatActivity() {
                 llmOutputLabel.visibility = View.GONE
                 llmOutputTextView.visibility = View.GONE
                 llmStatusTextView.visibility = View.GONE
+                findViewById<TextView>(R.id.voiceModelLabel).visibility = View.GONE
+                voiceModelSpinner.visibility = View.GONE
+                voiceStatusTextView.visibility = View.GONE
+                voiceGenerateButton.visibility = View.GONE
+                voiceResultTextView.visibility = View.GONE
             }
         }
     }
-    
+
     private fun switchAlgorithm(newAlgorithm: AlgorithmType) {
         if (isProcessing.get()) {
-            Log.i("AILIA_Main", "Processing active, queuing algorithm switch to ${newAlgorithm.name}")
+            Log.i(
+                "AILIA_Main",
+                "Processing active, queuing algorithm switch to ${newAlgorithm.name}"
+            )
             pendingAlgorithmSwitch = newAlgorithm
             return
         }
-        
+
         executeAlgorithmSwitch(newAlgorithm)
     }
-    
+
     private fun executeAlgorithmSwitch(newAlgorithm: AlgorithmType) {
         releaseCurrentAlgorithm()
         currentAlgorithm = newAlgorithm
@@ -422,7 +545,7 @@ class MainActivity : AppCompatActivity() {
             processImageMode()
         }
     }
-    
+
     private fun releaseCurrentAlgorithm() {
         try {
             poseEstimatorSample.releasePoseEstimator()
@@ -431,33 +554,34 @@ class MainActivity : AppCompatActivity() {
             tokenizerSample.releaseTokenizer()
             trackerSample.releaseTracker()
             speechSample.releaseSpeech()
+            voiceSample.releaseVoice()
             llmSample.release()
             multimodalLLMSample.release()
         } catch (e: Exception) {
             Log.e("AILIA_Error", "Error releasing algorithms: ${e.message}")
         }
     }
-    
+
     private fun switchToImageMode() {
         if (isProcessing.get()) {
             Log.i("AILIA_Main", "Processing active, queuing mode switch to Image")
             pendingModeSwitch = R.id.imageRadioButton
             return
         }
-        
+
         executeModeSwitch(R.id.imageRadioButton)
     }
-    
+
     private fun switchToCameraMode() {
         if (isProcessing.get()) {
             Log.i("AILIA_Main", "Processing active, queuing mode switch to Camera")
             pendingModeSwitch = R.id.cameraRadioButton
             return
         }
-        
+
         executeModeSwitch(R.id.cameraRadioButton)
     }
-    
+
     private fun executeModeSwitch(modeId: Int) {
         when (modeId) {
             R.id.imageRadioButton -> {
@@ -465,6 +589,7 @@ class MainActivity : AppCompatActivity() {
                 stopCamera()
                 processImageMode()
             }
+
             R.id.cameraRadioButton -> {
                 if (allPermissionsGranted()) {
                     updateUIVisibility()
@@ -476,39 +601,93 @@ class MainActivity : AppCompatActivity() {
             }
         }
     }
-    
+
     private fun initializeAilia() {
         try {
             selectedEnv = poseEstimatorSample.ailia_environment(cacheDir.absolutePath)
-            
+
             when (currentAlgorithm) {
                 AlgorithmType.POSE_ESTIMATION -> {
                     val proto: ByteArray? = loadRawFile(R.raw.lightweight_human_pose_proto)
                     val model: ByteArray? = loadRawFile(R.raw.lightweight_human_pose_weight)
-                    isInitialized = poseEstimatorSample.initializePoseEstimator(selectedEnv!!.id, proto, model)
+                    isInitialized =
+                        poseEstimatorSample.initializePoseEstimator(selectedEnv!!.id, proto, model)
                 }
+
                 AlgorithmType.OBJECT_DETECTION -> {
                     //val yoloxModel: ByteArray? = loadRawFile(R.raw.yolox_tiny)
                     val yoloxModel: ByteArray? = loadRawFile(R.raw.yolox_s)
-                    isInitialized = objectDetectionSample.initializeObjectDetection(yoloxModel, env = AiliaTFLite.AILIA_TFLITE_ENV_NNAPI)
+                    isInitialized = objectDetectionSample.initializeObjectDetection(
+                        yoloxModel,
+                        env = AiliaTFLite.AILIA_TFLITE_ENV_NNAPI
+                    )
                 }
+
                 AlgorithmType.CLASSIFICATION -> {
                     val classificationModel: ByteArray? = loadRawFile(R.raw.mobilenetv2)
-                    isInitialized = classificationSample.initializeClassification(classificationModel, env = AiliaTFLite.AILIA_TFLITE_ENV_NNAPI)
+                    isInitialized = classificationSample.initializeClassification(
+                        classificationModel,
+                        env = AiliaTFLite.AILIA_TFLITE_ENV_NNAPI
+                    )
                 }
+
                 AlgorithmType.TOKENIZE -> {
                     isInitialized = tokenizerSample.initializeTokenizer()
                 }
+
                 AlgorithmType.TRACKING -> {
                     //val yoloxModel: ByteArray? = loadRawFile(R.raw.yolox_tiny)
                     val yoloxModel: ByteArray? = loadRawFile(R.raw.yolox_s)
-                    if (objectDetectionSample.initializeObjectDetection(yoloxModel, env = AiliaTFLite.AILIA_TFLITE_ENV_NNAPI)) {
+                    if (objectDetectionSample.initializeObjectDetection(
+                            yoloxModel,
+                            env = AiliaTFLite.AILIA_TFLITE_ENV_NNAPI
+                        )
+                    ) {
                         isInitialized = trackerSample.initializeTracker()
                     }
                 }
+
                 AlgorithmType.SPEECH_TO_TEXT -> {
                     isInitialized = speechSample.initializeSpeech()
                 }
+
+                AlgorithmType.TEXT_TO_SPEECH -> {
+                    runOnUiThread {
+                        voiceStatusTextView.text = "Status: Downloading model..."
+                        voiceGenerateButton.isEnabled = false
+                    }
+                    voiceSample.modelType = selectedVoiceModelType
+                    cameraExecutor.execute {
+                        val success = voiceSample.initializeVoice(object : AiliaVoiceSample.DownloadListener {
+                            override fun onProgress(fileName: String, bytesDownloaded: Long, totalBytes: Long) {
+                                val percent = if (totalBytes > 0) (bytesDownloaded * 100 / totalBytes) else 0
+                                runOnUiThread {
+                                    voiceStatusTextView.text = "Status: Downloading $fileName... $percent%"
+                                }
+                            }
+                            override fun onComplete() {
+                                Log.i("AILIA_Main", "Voice model download complete")
+                            }
+                            override fun onError(error: String) {
+                                runOnUiThread {
+                                    voiceStatusTextView.text = "Status: Error - $error"
+                                }
+                            }
+                        })
+                        runOnUiThread {
+                            isInitialized = success
+                            if (success) {
+                                voiceStatusTextView.text = "Status: Ready"
+                                voiceGenerateButton.isEnabled = true
+                                setupVoiceGenerateButton()
+                            } else {
+                                voiceStatusTextView.text = "Status: Initialization failed"
+                            }
+                        }
+                    }
+                    return // Don't wait for async initialization
+                }
+
                 AlgorithmType.LLM -> {
                     runOnUiThread {
                         llmStatusTextView.text = "Status: Downloading model..."
@@ -588,7 +767,10 @@ class MainActivity : AppCompatActivity() {
                 Log.e("AILIA_Error", "Failed to initialize algorithm ${currentAlgorithm.name}")
             }
         } catch (e: Exception) {
-            Log.e("AILIA_Error", "Error initializing algorithm ${currentAlgorithm.name}: ${e.message}")
+            Log.e(
+                "AILIA_Error",
+                "Error initializing algorithm ${currentAlgorithm.name}: ${e.message}"
+            )
         }
     }
 
@@ -682,8 +864,86 @@ class MainActivity : AppCompatActivity() {
             }
         }
     }
-    
+
+    private fun setupVoiceModelSpinner() {
+        val voiceModels = arrayOf("V1", "V2", "V3", "V2-Pro")
+        val adapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, voiceModels)
+        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+        voiceModelSpinner.adapter = adapter
+
+        voiceModelSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
+                val newType = when (position) {
+                    0 -> VoiceModelType.GPT_SOVITS_V1
+                    1 -> VoiceModelType.GPT_SOVITS_V2
+                    2 -> VoiceModelType.GPT_SOVITS_V3
+                    3 -> VoiceModelType.GPT_SOVITS_V2_PRO
+                    else -> VoiceModelType.GPT_SOVITS_V1
+                }
+                if (newType != selectedVoiceModelType) {
+                    selectedVoiceModelType = newType
+                    // モデル切り替え時に再初期化
+                    if (currentAlgorithm == AlgorithmType.TEXT_TO_SPEECH) {
+                        voiceSample.releaseVoice()
+                        isInitialized = false
+                        voiceGenerateButton.isEnabled = false
+                        voiceResultTextView.text = ""
+                        initializeAilia()
+                    }
+                }
+            }
+            override fun onNothingSelected(parent: AdapterView<*>?) {}
+        }
+    }
+
+    private fun setupVoiceGenerateButton() {
+        voiceGenerateButton.setOnClickListener {
+            voiceGenerateButton.isEnabled = false
+            voiceStatusTextView.text = "Status: Generating..."
+            voiceResultTextView.text = ""
+
+            cameraExecutor.execute {
+                val refAudio: AudioUtil.WavFileData = AudioUtil().loadRawAudio(this.resources.openRawResource(R.raw.reference_audio_girl))
+                val text: String
+                val textLang: String
+                if (selectedVoiceModelType == VoiceModelType.GPT_SOVITS_V1) {
+                    text = "Hello world. We will introduce ailia AI voice."
+                    textLang = "en"
+                } else {
+                    text = "こんにちは。今日はいい天気ですね。"
+                    textLang = "ja"
+                }
+                val inferenceTime = voiceSample.textToSpeech(
+                    refAudio.audioData,
+                    refAudio.channels,
+                    refAudio.sampleRate,
+                    "水をマレーシアから買わなくてはならない。",
+                    "ja",
+                    text,
+                    textLang,
+                )
+                runOnUiThread {
+                    voiceGenerateButton.isEnabled = true
+                    voiceStatusTextView.text = "Status: Complete"
+                    voiceResultTextView.text = "${selectedVoiceModelType.name} Generated"
+                    if (inferenceTime > 0) {
+                        processingTimeTextView.text = "Processing Time: ${inferenceTime}ms (Voice)"
+                    }
+                }
+            }
+        }
+    }
+
     private fun processImageMode() {
+        // TEXT_TO_SPEECHは非同期初期化のため、このメソッドでは処理しない
+        if (currentAlgorithm == AlgorithmType.TEXT_TO_SPEECH) {
+            if (!isInitialized) {
+                setupVoiceModelSpinner()
+                initializeAilia()
+            }
+            return
+        }
+
         // LLMは非同期初期化のため、このメソッドでは処理しない
         if (currentAlgorithm == AlgorithmType.LLM) {
             if (!isInitialized) {
@@ -723,44 +983,45 @@ class MainActivity : AppCompatActivity() {
                 }
                 return
             }
-            
+
             val options = Options()
             options.inScaled = false
             val personBmp = BitmapFactory.decodeResource(this.resources, R.raw.person, options)
-            
-            val img = loadRawImage(personBmp)
+
+            val img = ImageUtil().loadRawImage(personBmp)
             val w = personBmp.width
             val h = personBmp.height
-            
+
             val bitmap = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
             bitmap.copyPixelsFromBuffer(ByteBuffer.wrap(img))
-            
+
             val canvas = Canvas(bitmap)
             val paint = Paint().apply {
                 color = Color.WHITE
             }
-            
+
             val paint2 = Paint().apply {
                 style = Paint.Style.STROKE
                 color = Color.RED
                 strokeWidth = 5f
             }
-            
+
             val textPaint = Paint().apply {
                 color = Color.BLACK
                 textSize = 50f
                 isAntiAlias = true
             }
-            
+
             val processingTime = processAlgorithm(img, personBmp, canvas, w, h)
-            
+
             runOnUiThread {
                 if (currentAlgorithm != AlgorithmType.TOKENIZE) {
                     imageView.setImageBitmap(bitmap)
                 }
-                processingTimeTextView.text = "Processing Time: ${processingTime}ms (${currentAlgorithm.name})"
+                processingTimeTextView.text =
+                    "Processing Time: ${processingTime}ms (${currentAlgorithm.name})"
             }
-            
+
         } catch (e: Exception) {
             Log.e("AILIA_Error", "Error in image mode: ${e.message}")
             runOnUiThread {
@@ -768,40 +1029,40 @@ class MainActivity : AppCompatActivity() {
             }
         } finally {
             isProcessing.set(false)
-            
+
             pendingAlgorithmSwitch?.let { pendingAlgorithm ->
                 pendingAlgorithmSwitch = null
                 executeAlgorithmSwitch(pendingAlgorithm)
             }
-            
+
             pendingModeSwitch?.let { pendingMode ->
                 pendingModeSwitch = null
                 executeModeSwitch(pendingMode)
             }
         }
     }
-    
+
     private fun startCamera() {
         isStopCamera.set(false)
 
         val cameraProviderFuture = ProcessCameraProvider.getInstance(this)
-        
+
         cameraProviderFuture.addListener({
             val cameraProvider: ProcessCameraProvider = cameraProviderFuture.get()
-            
+
             val preview = Preview.Builder().build().also {
                 it.setSurfaceProvider(cameraPreviewView.surfaceProvider)
             }
-            
+
             imageAnalyzer = ImageAnalysis.Builder()
                 .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                 .build()
                 .also {
                     it.setAnalyzer(cameraExecutor, CameraFrameAnalyzer())
                 }
-            
+
             val cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
-            
+
             try {
                 cameraProvider.unbindAll()
                 camera = cameraProvider.bindToLifecycle(
@@ -810,10 +1071,10 @@ class MainActivity : AppCompatActivity() {
             } catch (exc: Exception) {
                 Log.e("AILIA_Error", "Use case binding failed", exc)
             }
-            
+
         }, ContextCompat.getMainExecutor(this))
     }
-    
+
     private fun stopCamera() {
         isStopCamera.set(true)
         try {
@@ -854,7 +1115,7 @@ class MainActivity : AppCompatActivity() {
             }
             image.close()
         }
-        
+
         private fun processCameraFrame(image: ImageProxy) {
             if (isProcessing.get()) {
                 return
@@ -868,14 +1129,14 @@ class MainActivity : AppCompatActivity() {
             if (isStopCamera.get()) {
                 return
             }
-            
+
             isProcessing.set(true)
-            
+
             try {
-                var camera_bitmap = imageProxyToBitmap(image)
+                var camera_bitmap = ImageUtil().imageProxyToBitmap(image)
                 camera_bitmap = cropToSquare(camera_bitmap)
 
-                val img = loadRawImage(camera_bitmap)
+                val img = ImageUtil().loadRawImage(camera_bitmap)
                 val w = camera_bitmap.width
                 val h = camera_bitmap.height
 
@@ -884,23 +1145,24 @@ class MainActivity : AppCompatActivity() {
                 val bitmap = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
                 val canvas = Canvas(bitmap)
                 canvas.drawBitmap(camera_bitmap, 0f, 0f, null)
-                
+
                 val processingTime = processAlgorithm(img, bitmap, canvas, w, h)
-                
+
                 runOnUiThread {
                     if (currentAlgorithm != AlgorithmType.TOKENIZE) {
                         imageView.setImageBitmap(bitmap)
                     }
 
                     val fps = if (processingTime > 0) 1000 / processingTime else 0
-                    processingTimeTextView.text = "Processing Time: ${processingTime}ms (${currentAlgorithm.name}) - FPS: $fps"
+                    processingTimeTextView.text =
+                        "Processing Time: ${processingTime}ms (${currentAlgorithm.name}) - FPS: $fps"
                 }
-                
+
             } catch (e: Exception) {
                 Log.e("AILIA_Error", "Error processing camera frame: ${e.message}")
             } finally {
                 isProcessing.set(false)
-                
+
                 pendingAlgorithmSwitch?.let { pendingAlgorithm ->
                     pendingAlgorithmSwitch = null
                     isWaitAlgorithmSwitch.set(true)
@@ -909,7 +1171,7 @@ class MainActivity : AppCompatActivity() {
                         isWaitAlgorithmSwitch.set(false)
                     }
                 }
-                
+
                 pendingModeSwitch?.let { pendingMode ->
                     pendingModeSwitch = null
                     isWaitModeSwitch.set(true)
@@ -922,102 +1184,10 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun imageProxyToBitmap(image: ImageProxy): Bitmap {
-        val width = image.getWidth()
-        val height = image.getHeight()
-        val nv21 = yuv420888ToNv21(image)
-        val yuvImage = YuvImage(nv21, ImageFormat.NV21, width, height, null)
-        val out = ByteArrayOutputStream()
-        yuvImage.compressToJpeg(android.graphics.Rect(0, 0, width, height), 100, out)
-        val imageBytes: ByteArray = out.toByteArray()
-        val bitmap: Bitmap = BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.size)
-        val matrix = android.graphics.Matrix()
-        matrix.postRotate(90f)
-        return Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
-    }
-
-    private fun yuv420888ToNv21(image: ImageProxy): ByteArray {
-        val pixelCount = image.cropRect.width() * image.cropRect.height()
-        val pixelSizeBits = ImageFormat.getBitsPerPixel(ImageFormat.YUV_420_888)
-        val outputBuffer = ByteArray(pixelCount * pixelSizeBits / 8)
-        imageToByteBuffer(image, outputBuffer, pixelCount)
-        return outputBuffer
-    }
-
-    private fun imageToByteBuffer(image: ImageProxy, outputBuffer: ByteArray, pixelCount: Int) {
-        assert(image.format == ImageFormat.YUV_420_888)
-
-        val imageCrop = image.cropRect
-        val imagePlanes = image.planes
-
-        imagePlanes.forEachIndexed { planeIndex, plane ->
-            val outputStride: Int
-            var outputOffset: Int
-
-            when (planeIndex) {
-                0 -> {
-                    outputStride = 1
-                    outputOffset = 0
-                }
-                1 -> {
-                    outputStride = 2
-                    outputOffset = pixelCount + 1
-                }
-                2 -> {
-                    outputStride = 2
-                    outputOffset = pixelCount
-                }
-                else -> {
-                    return@forEachIndexed
-                }
-            }
-
-            val planeBuffer = plane.buffer
-            val rowStride = plane.rowStride
-            val pixelStride = plane.pixelStride
-            val planeCrop = if (planeIndex == 0) {
-                imageCrop
-            } else {
-                android.graphics.Rect(
-                    imageCrop.left / 2,
-                    imageCrop.top / 2,
-                    imageCrop.right / 2,
-                    imageCrop.bottom / 2
-                )
-            }
-
-            val planeWidth = planeCrop.width()
-            val planeHeight = planeCrop.height()
-            val rowBuffer = ByteArray(plane.rowStride)
-
-            val rowLength = if (pixelStride == 1 && outputStride == 1) {
-                planeWidth
-            } else {
-                (planeWidth - 1) * pixelStride + 1
-            }
-
-            for (row in 0 until planeHeight) {
-                planeBuffer.position(
-                    (row + planeCrop.top) * rowStride + planeCrop.left * pixelStride)
-
-                if (pixelStride == 1 && outputStride == 1) {
-                    planeBuffer.get(outputBuffer, outputOffset, rowLength)
-                    outputOffset += rowLength
-                } else {
-                    planeBuffer.get(rowBuffer, 0, rowLength)
-                    for (col in 0 until planeWidth) {
-                        outputBuffer[outputOffset] = rowBuffer[col * pixelStride]
-                        outputOffset += outputStride
-                    }
-                }
-            }
-        }
-    }
-
     private fun allPermissionsGranted() = REQUIRED_PERMISSIONS.all {
         ContextCompat.checkSelfPermission(baseContext, it) == PackageManager.PERMISSION_GRANTED
     }
-    
+
     override fun onRequestPermissionsResult(
         requestCode: Int, permissions: Array<String>, grantResults: IntArray
     ) {
@@ -1026,18 +1196,19 @@ class MainActivity : AppCompatActivity() {
             if (allPermissionsGranted()) {
                 initializeAilia()
             } else {
-                Toast.makeText(this, "Permissions not granted by the user.", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, "Permissions not granted by the user.", Toast.LENGTH_SHORT)
+                    .show()
                 finish()
             }
         }
     }
-    
+
     override fun onDestroy() {
         super.onDestroy()
         releaseCurrentAlgorithm()
         cameraExecutor.shutdown()
     }
-    
+
     @Throws(IOException::class)
     fun inputStreamToByteArray(`in`: InputStream): ByteArray? {
         val bout = ByteArrayOutputStream()
@@ -1055,69 +1226,5 @@ class MainActivity : AppCompatActivity() {
     fun loadRawFile(resourceId: Int): ByteArray? {
         val resources = this.resources
         resources.openRawResource(resourceId).use { `in` -> return inputStreamToByteArray(`in`) }
-    }
-
-    @Throws(IOException::class)
-    fun loadRawImage(bmp: Bitmap): ByteArray {
-        val w = bmp.width
-        val h = bmp.height
-        val pixels = IntArray(w * h)
-        bmp.getPixels(pixels, 0, w, 0, 0, w, h)
-        val bout = ByteArrayOutputStream()
-        val out = DataOutputStream(bout)
-        for (i in pixels) {
-            out.writeByte(i shr 16 and 0xff)
-            out.writeByte(i shr 8 and 0xff)
-            out.writeByte(i shr 0 and 0xff)
-            out.writeByte(i shr 24 and 0xff)
-        }
-        return bout.toByteArray()
-    }
-
-    data class WavFileData(
-        val sampleRate: Int,
-        val channels: Int,
-        val audioData: FloatArray
-    )
-
-    fun loadRawAudio(resId: Int): WavFileData {
-        val inputStream: InputStream = this.resources.openRawResource(resId)
-        inputStream.use {
-            val header = ByteArray(44)
-            // Read the WAV file header
-            if (inputStream.read(header, 0, 44) != 44) {
-                throw IllegalArgumentException("Invalid WAV file")
-            }
-
-            // Extract necessary information
-            val audioFormat = ByteBuffer.wrap(header, 20, 2).order(ByteOrder.LITTLE_ENDIAN).short.toInt()
-            val channels = ByteBuffer.wrap(header, 22, 2).order(ByteOrder.LITTLE_ENDIAN).short.toInt()
-            val sampleRate = ByteBuffer.wrap(header, 24, 4).order(ByteOrder.LITTLE_ENDIAN).int
-            val bitsPerSample = ByteBuffer.wrap(header, 34, 2).order(ByteOrder.LITTLE_ENDIAN).short.toInt()
-
-            if (audioFormat != 1 || bitsPerSample != 16) {
-                throw IllegalArgumentException("Unsupported WAV format: Only PCM 16-bit is supported.")
-            }
-
-            val byteRate = sampleRate * channels * bitsPerSample / 8
-            val dataSize = ByteBuffer.wrap(header, 40, 4).order(ByteOrder.LITTLE_ENDIAN).int
-
-            // Read the PCM data
-            val pcmData = ByteArray(dataSize)
-            if (inputStream.read(pcmData) != dataSize) {
-                throw RuntimeException("Failed to read the PCM data.")
-            }
-
-            // Convert the byte data to a float array
-            val numSamples = dataSize / 2
-            val floatArray = FloatArray(numSamples)
-            val buffer = ByteBuffer.wrap(pcmData).order(ByteOrder.LITTLE_ENDIAN)
-            for (i in 0 until numSamples) {
-                val sample = buffer.short / 32768.0f // normalize to [-1.0, 1.0]
-                floatArray[i] = sample
-            }
-
-            return WavFileData(sampleRate = sampleRate, channels = channels, audioData = floatArray)
-        }
     }
 }
