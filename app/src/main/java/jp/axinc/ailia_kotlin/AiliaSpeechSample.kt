@@ -9,6 +9,53 @@ import java.net.URL
 import axip.ailia_speech.AiliaSpeech
 import axip.ailia_speech.AiliaSpeechText
 
+/**
+ * Enum defining available speech recognition models.
+ */
+enum class SpeechModelType(
+    val displayName: String,
+    val encoderUrl: String,
+    val encoderFileName: String,
+    val decoderUrl: String,
+    val decoderFileName: String,
+    val modelTypeId: Int,
+    val needsDecoder: Boolean = true
+) {
+    WHISPER_TINY(
+        "Whisper Tiny",
+        "https://storage.googleapis.com/ailia-models/whisper/encoder_tiny.opt3.onnx",
+        "encoder_tiny.onnx",
+        "https://storage.googleapis.com/ailia-models/whisper/decoder_tiny_fix_kv_cache.opt3.onnx",
+        "decoder_tiny.onnx",
+        AiliaSpeech.AILIA_SPEECH_MODEL_TYPE_WHISPER_MULTILINGUAL_TINY
+    ),
+    WHISPER_BASE(
+        "Whisper Base",
+        "https://storage.googleapis.com/ailia-models/whisper/encoder_base.opt3.onnx",
+        "encoder_base.onnx",
+        "https://storage.googleapis.com/ailia-models/whisper/decoder_base_fix_kv_cache.opt3.onnx",
+        "decoder_base.onnx",
+        AiliaSpeech.AILIA_SPEECH_MODEL_TYPE_WHISPER_MULTILINGUAL_BASE
+    ),
+    WHISPER_SMALL(
+        "Whisper Small",
+        "https://storage.googleapis.com/ailia-models/whisper/encoder_small.opt3.onnx",
+        "encoder_small.onnx",
+        "https://storage.googleapis.com/ailia-models/whisper/decoder_small_fix_kv_cache.opt3.onnx",
+        "decoder_small.onnx",
+        AiliaSpeech.AILIA_SPEECH_MODEL_TYPE_WHISPER_MULTILINGUAL_SMALL
+    ),
+    SENSEVOICE_SMALL(
+        "SenseVoice Small",
+        "https://storage.googleapis.com/ailia-models/sensevoice/sensevoice_small.onnx",
+        "sensevoice_small.onnx",
+        "",
+        "",
+        AiliaSpeech.AILIA_SPEECH_MODEL_TYPE_SENSEVOICE_SMALL,
+        needsDecoder = false
+    )
+}
+
 class AiliaSpeechSample {
     companion object {
         private const val TAG = "AILIA_Main"
@@ -23,6 +70,7 @@ class AiliaSpeechSample {
     private var speech: AiliaSpeech? = null
     private var isInitialized = false
     var modelDir: String = ""
+    var currentModelType: SpeechModelType = SpeechModelType.WHISPER_TINY
 
     private fun downloadFile(urlStr: String, fileName: String, listener: DownloadListener? = null): String {
         val dir = modelDir
@@ -62,50 +110,69 @@ class AiliaSpeechSample {
         return path
     }
 
-    fun downloadModel(listener: DownloadListener? = null): Boolean {
+    /**
+     * Downloads model files for the specified (or current) speech model type.
+     */
+    fun downloadModel(modelType: SpeechModelType = currentModelType, listener: DownloadListener? = null): Boolean {
+        currentModelType = modelType
         return try {
-            Log.i(TAG, "Starting speech model download/check...")
+            Log.i(TAG, "Starting speech model download/check for ${modelType.displayName}...")
             downloadFile(
-                "https://storage.googleapis.com/ailia-models/whisper/encoder_tiny.opt3.onnx",
-                "encoder_tiny.onnx",
+                modelType.encoderUrl,
+                modelType.encoderFileName,
                 listener
             )
-            downloadFile(
-                "https://storage.googleapis.com/ailia-models/whisper/decoder_tiny_fix_kv_cache.opt3.onnx",
-                "decoder_tiny.onnx",
-                listener
-            )
+            if (modelType.needsDecoder) {
+                downloadFile(
+                    modelType.decoderUrl,
+                    modelType.decoderFileName,
+                    listener
+                )
+            }
             listener?.onComplete()
-            Log.i(TAG, "Speech model download/check complete")
+            Log.i(TAG, "Speech model download/check complete for ${modelType.displayName}")
             true
         } catch (e: Exception) {
-            Log.e(TAG, "Speech model download failed", e)
+            Log.e(TAG, "Speech model download failed for ${modelType.displayName}", e)
             listener?.onError(e.message ?: "Download failed")
             false
         }
     }
 
-    fun initializeSpeech(envId: Int = -1): Boolean {
+    /**
+     * Initializes the speech engine with the current model type.
+     *
+     * @param envId Environment ID (-1 for auto)
+     * @param liveMode If true, initializes with AILIA_SPEECH_FLAG_LIVE for streaming mic input
+     */
+    fun initializeSpeech(envId: Int = -1, liveMode: Boolean = false): Boolean {
         if (isInitialized) {
             releaseSpeech()
         }
 
         return try {
             val dir = modelDir
-            val encoderPath = "$dir/encoder_tiny.onnx"
-            val decoderPath = "$dir/decoder_tiny.onnx"
+            val encoderPath = "$dir/${currentModelType.encoderFileName}"
+            val decoderPath = if (currentModelType.needsDecoder) {
+                "$dir/${currentModelType.decoderFileName}"
+            } else {
+                ""
+            }
 
-            Log.i(TAG, "Initializing speech with envId=$envId")
+            val flags = if (liveMode) AiliaSpeech.AILIA_SPEECH_FLAG_LIVE else AiliaSpeech.AILIA_SPEECH_FLAG_NONE
+
+            Log.i(TAG, "Initializing speech with envId=$envId, model=${currentModelType.displayName}, liveMode=$liveMode")
             Log.i(TAG, "Encoder: $encoderPath")
             Log.i(TAG, "Decoder: $decoderPath")
 
             speech = AiliaSpeech(
                 envId = envId,
-                task = AiliaSpeech.AILIA_SPEECH_TASK_TRANSCRIBE
+                task = AiliaSpeech.AILIA_SPEECH_TASK_TRANSCRIBE,
+                flags = flags
             )
-            speech?.openModel(encoderPath, decoderPath, AiliaSpeech.AILIA_SPEECH_MODEL_TYPE_WHISPER_MULTILINGUAL_TINY)
+            speech?.openModel(encoderPath, decoderPath, currentModelType.modelTypeId)
             isInitialized = true
-            Log.i(TAG, "Speech initialized successfully with envId=$envId")
+            Log.i(TAG, "Speech initialized successfully with envId=$envId, model=${currentModelType.displayName}")
             true
         } catch (e: Exception) {
             Log.e(TAG, "Failed to initialize speech: ${e.javaClass.name}: ${e.message}")
@@ -114,6 +181,10 @@ class AiliaSpeechSample {
         }
     }
 
+    /**
+     * Processes audio from a WAV file (non-live mode).
+     * Calls pushInputData, finalizeInputData, transcribe, and returns text.
+     */
     fun process(audio: FloatArray, channels: Int, sampleRate: Int): String {
         Log.i(TAG, "Speech process: audio.size=${audio.size}, channels=$channels, sampleRate=$sampleRate, samples=${audio.size / channels}")
         val pushResult = speech?.pushInputData(audio, channels, audio.size / channels, sampleRate)
@@ -126,23 +197,63 @@ class AiliaSpeechSample {
             val errorDetail = speech?.getErrorDetail()
             Log.e(TAG, "Speech transcribe error detail: $errorDetail")
         }
+        return collectTextResults()
+    }
+
+    /**
+     * Pushes live audio data for streaming recognition (live mode).
+     * Does NOT call finalizeInputData - use finalizeLiveAudio() when recording stops.
+     */
+    fun pushLiveAudio(audio: FloatArray, channels: Int, sampleRate: Int): String {
+        val pushResult = speech?.pushInputData(audio, channels, audio.size / channels, sampleRate)
+        Log.d(TAG, "Speech pushLiveAudio: pushInputData result=$pushResult, samples=${audio.size / channels}")
+        val transcribeResult = speech?.transcribe()
+        Log.d(TAG, "Speech pushLiveAudio: transcribe result=$transcribeResult")
+        if (transcribeResult != null && transcribeResult != 0) {
+            val errorDetail = speech?.getErrorDetail()
+            Log.e(TAG, "Speech pushLiveAudio transcribe error: $errorDetail")
+        }
+        return collectTextResults()
+    }
+
+    /**
+     * Finalizes live audio input and returns final transcription.
+     * Call this when mic recording stops.
+     */
+    fun finalizeLiveAudio(): String {
+        val finalizeResult = speech?.finalizeInputData()
+        Log.i(TAG, "Speech finalizeLiveAudio: finalizeInputData result=$finalizeResult")
+        val transcribeResult = speech?.transcribe()
+        Log.i(TAG, "Speech finalizeLiveAudio: transcribe result=$transcribeResult")
+        if (transcribeResult != null && transcribeResult != 0) {
+            val errorDetail = speech?.getErrorDetail()
+            Log.e(TAG, "Speech finalizeLiveAudio transcribe error: $errorDetail")
+        }
+        return collectTextResults()
+    }
+
+    /**
+     * Collects text results from the speech engine.
+     */
+    private fun collectTextResults(): String {
         val count: Int? = speech?.getTextCount()
         Log.i(TAG, "Speech getTextCount=$count")
-        if (count == null) {
+        if (count == null || count == 0) {
             return ""
         }
-        var ret = ""
+        val sb = StringBuilder()
         for (i in 0 until count) {
             val text: AiliaSpeechText? = speech?.getText(i)
             if (text == null) {
                 continue
             }
             Log.i(TAG, "Speech text[$i]: '${text.text}' confidence=${text.confidence}")
-            ret = ret + text.text + "\n"
+            sb.append(text.text).append("\n")
         }
         speech?.resetTranscribeState()
-        Log.i(TAG, "Speech process result: '$ret'")
-        return ret
+        val result = sb.toString()
+        Log.i(TAG, "Speech result: '$result'")
+        return result
     }
 
     fun releaseSpeech() {

@@ -177,6 +177,56 @@
                 android:visibility="gone" />
 
             <TextView
+                android:id="@+id/speechModelLabel"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="8dp"
+                android:text="Speech Model:"
+                android:textColor="?android:attr/textColorPrimary"
+                android:textSize="16sp"
+                android:textStyle="bold"
+                android:visibility="gone" />
+
+            <Spinner
+                android:id="@+id/speechModelSpinner"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="8dp"
+                android:visibility="gone" />
+
+            <RadioGroup
+                android:id="@+id/speechModeRadioGroup"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="8dp"
+                android:orientation="horizontal"
+                android:visibility="gone">
+
+                <RadioButton
+                    android:id="@+id/wavRadioButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Wav"
+                    android:checked="true" />
+
+                <RadioButton
+                    android:id="@+id/micRadioButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Mic"
+                    android:layout_marginStart="16dp" />
+
+            </RadioGroup>
+
+            <Button
+                android:id="@+id/micRecordButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="8dp"
+                android:text="Record"
+                android:visibility="gone" />
+
+            <TextView
                 android:id="@+id/tokenizerInputLabel"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
