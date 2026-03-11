@@ -20,6 +20,7 @@ import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import axip.ailia.*
 import axip.ailia_tflite.*
+import axip.ailia_llm.AiliaLLM
 import java.io.*
 import java.nio.ByteBuffer
 import java.util.concurrent.ExecutorService
@@ -38,6 +39,13 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tokenizerInputEditText: EditText
     private lateinit var tokenizerOutputTextView: TextView
     private lateinit var trackingResultTextView: TextView
+    private lateinit var llmInputLabel: TextView
+    private lateinit var llmInputEditText: EditText
+    private lateinit var llmSendButton: Button
+    private lateinit var llmOutputLabel: TextView
+    private lateinit var llmOutputTextView: TextView
+    private lateinit var llmStatusTextView: TextView
+    private lateinit var multimodalImageView: ImageView
 
     private var poseEstimatorSample = AiliaPoseEstimatorSample()
     private var objectDetectionSample = AiliaTFLiteObjectDetectionSample()
@@ -46,6 +54,8 @@ class MainActivity : AppCompatActivity() {
     private var trackerSample = AiliaTrackerSample()
     private var speechSample = AiliaSpeechSample()
     private var voiceSample = AiliaVoiceSample()
+    private var llmSample = AiliaLLMSample()
+    private var multimodalLLMSample = AiliaMultimodalLLMSample()
 
     private var selectedEnv: AiliaEnvironment? = null
     private var isInitialized = false
@@ -71,6 +81,8 @@ class MainActivity : AppCompatActivity() {
         TEXT_TO_SPEECH_V2,
         TEXT_TO_SPEECH_V3,
         TEXT_TO_SPEECH_V2_PRO,
+        LLM,
+        MULTIMODAL_LLM,
     }
 
     companion object {
@@ -79,12 +91,17 @@ class MainActivity : AppCompatActivity() {
 
         init {
             System.loadLibrary("ailia")
+            System.loadLibrary("ailia_llm")
         }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
+
+        // cameraExecutorはsetupModeSelection()より先に初期化する必要がある
+        // (SpinnerのonItemSelectedでinitializeAilia()が呼ばれるため)
+        cameraExecutor = Executors.newSingleThreadExecutor()
 
         initializeViews()
         setupModeSelection()
@@ -95,8 +112,6 @@ class MainActivity : AppCompatActivity() {
         } else {
             ActivityCompat.requestPermissions(this, REQUIRED_PERMISSIONS, REQUEST_CODE_PERMISSIONS)
         }
-
-        cameraExecutor = Executors.newSingleThreadExecutor()
     }
 
     private fun initializeViews() {
@@ -110,6 +125,13 @@ class MainActivity : AppCompatActivity() {
         tokenizerInputEditText = findViewById(R.id.tokenizerInputEditText)
         tokenizerOutputTextView = findViewById(R.id.tokenizerOutputTextView)
         trackingResultTextView = findViewById(R.id.trackingResultTextView)
+        llmInputLabel = findViewById(R.id.llmInputLabel)
+        llmInputEditText = findViewById(R.id.llmInputEditText)
+        llmSendButton = findViewById(R.id.llmSendButton)
+        llmOutputLabel = findViewById(R.id.llmOutputLabel)
+        llmOutputTextView = findViewById(R.id.llmOutputTextView)
+        llmStatusTextView = findViewById(R.id.llmStatusTextView)
+        multimodalImageView = findViewById(R.id.multimodalImageView)
     }
 
     private fun setupModeSelection() {
@@ -124,6 +146,8 @@ class MainActivity : AppCompatActivity() {
             "Text2Speech_V2",
             "Text2Speech_V3",
             "Text2Speech_V2Pro",
+            "LLM",
+            "MultimodalLLM",
         )
 
         val adapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, algorithms)
@@ -323,6 +347,10 @@ class MainActivity : AppCompatActivity() {
                 inferenceTime
             }
 
+            AlgorithmType.LLM, AlgorithmType.MULTIMODAL_LLM -> {
+                // LLM modes are handled asynchronously via the send button
+                0
+            }
         }
     }
 
@@ -341,6 +369,13 @@ class MainActivity : AppCompatActivity() {
                 trackingResultTextView.visibility = View.GONE
                 findViewById<TextView>(R.id.tokenizerInputLabel).visibility = View.VISIBLE
                 findViewById<TextView>(R.id.tokenizerOutputLabel).visibility = View.VISIBLE
+                multimodalImageView.visibility = View.GONE
+                llmInputLabel.visibility = View.GONE
+                llmInputEditText.visibility = View.GONE
+                llmSendButton.visibility = View.GONE
+                llmOutputLabel.visibility = View.GONE
+                llmOutputTextView.visibility = View.GONE
+                llmStatusTextView.visibility = View.GONE
             }
 
             AlgorithmType.CLASSIFICATION -> {
@@ -358,6 +393,13 @@ class MainActivity : AppCompatActivity() {
                 trackingResultTextView.visibility = View.GONE
                 findViewById<TextView>(R.id.tokenizerInputLabel).visibility = View.GONE
                 findViewById<TextView>(R.id.tokenizerOutputLabel).visibility = View.GONE
+                multimodalImageView.visibility = View.GONE
+                llmInputLabel.visibility = View.GONE
+                llmInputEditText.visibility = View.GONE
+                llmSendButton.visibility = View.GONE
+                llmOutputLabel.visibility = View.GONE
+                llmOutputTextView.visibility = View.GONE
+                llmStatusTextView.visibility = View.GONE
             }
 
             AlgorithmType.TRACKING -> {
@@ -375,6 +417,13 @@ class MainActivity : AppCompatActivity() {
                 trackingResultTextView.visibility = View.VISIBLE
                 findViewById<TextView>(R.id.tokenizerInputLabel).visibility = View.GONE
                 findViewById<TextView>(R.id.tokenizerOutputLabel).visibility = View.GONE
+                multimodalImageView.visibility = View.GONE
+                llmInputLabel.visibility = View.GONE
+                llmInputEditText.visibility = View.GONE
+                llmSendButton.visibility = View.GONE
+                llmOutputLabel.visibility = View.GONE
+                llmOutputTextView.visibility = View.GONE
+                llmStatusTextView.visibility = View.GONE
             }
 
             AlgorithmType.SPEECH_TO_TEXT -> {
@@ -387,6 +436,59 @@ class MainActivity : AppCompatActivity() {
                 trackingResultTextView.visibility = View.GONE
                 findViewById<TextView>(R.id.tokenizerInputLabel).visibility = View.GONE
                 findViewById<TextView>(R.id.tokenizerOutputLabel).visibility = View.GONE
+                multimodalImageView.visibility = View.GONE
+                llmInputLabel.visibility = View.GONE
+                llmInputEditText.visibility = View.GONE
+                llmSendButton.visibility = View.GONE
+                llmOutputLabel.visibility = View.GONE
+                llmOutputTextView.visibility = View.GONE
+                llmStatusTextView.visibility = View.GONE
+            }
+            AlgorithmType.LLM -> {
+                imageView.visibility = View.GONE
+                cameraPreviewView.visibility = View.GONE
+                resultScrollView.visibility = View.VISIBLE
+                classificationResultTextView.visibility = View.GONE
+                tokenizerInputEditText.visibility = View.GONE
+                tokenizerOutputTextView.visibility = View.GONE
+                trackingResultTextView.visibility = View.GONE
+                findViewById<TextView>(R.id.tokenizerInputLabel).visibility = View.GONE
+                findViewById<TextView>(R.id.tokenizerOutputLabel).visibility = View.GONE
+                multimodalImageView.visibility = View.GONE
+                llmInputLabel.visibility = View.VISIBLE
+                llmInputEditText.visibility = View.VISIBLE
+                llmSendButton.visibility = View.VISIBLE
+                llmOutputLabel.visibility = View.VISIBLE
+                llmOutputTextView.visibility = View.VISIBLE
+                llmStatusTextView.visibility = View.VISIBLE
+                // モード切り替え時にリセット
+                llmInputEditText.setText("Hello!")
+                llmOutputTextView.text = ""
+                llmStatusTextView.text = "Status: Initializing..."
+                llmSendButton.isEnabled = false
+            }
+            AlgorithmType.MULTIMODAL_LLM -> {
+                imageView.visibility = View.GONE
+                cameraPreviewView.visibility = View.GONE
+                resultScrollView.visibility = View.VISIBLE
+                classificationResultTextView.visibility = View.GONE
+                tokenizerInputEditText.visibility = View.GONE
+                tokenizerOutputTextView.visibility = View.GONE
+                trackingResultTextView.visibility = View.GONE
+                findViewById<TextView>(R.id.tokenizerInputLabel).visibility = View.GONE
+                findViewById<TextView>(R.id.tokenizerOutputLabel).visibility = View.GONE
+                multimodalImageView.visibility = View.VISIBLE
+                llmInputLabel.visibility = View.VISIBLE
+                llmInputEditText.visibility = View.VISIBLE
+                llmSendButton.visibility = View.VISIBLE
+                llmOutputLabel.visibility = View.VISIBLE
+                llmOutputTextView.visibility = View.VISIBLE
+                llmStatusTextView.visibility = View.VISIBLE
+                // モード切り替え時にリセット
+                llmInputEditText.setText("What is in this image?")
+                llmOutputTextView.text = ""
+                llmStatusTextView.text = "Status: Initializing..."
+                llmSendButton.isEnabled = false
             }
 
             AlgorithmType.TEXT_TO_SPEECH,
@@ -419,6 +521,13 @@ class MainActivity : AppCompatActivity() {
                 trackingResultTextView.visibility = View.GONE
                 findViewById<TextView>(R.id.tokenizerInputLabel).visibility = View.GONE
                 findViewById<TextView>(R.id.tokenizerOutputLabel).visibility = View.GONE
+                multimodalImageView.visibility = View.GONE
+                llmInputLabel.visibility = View.GONE
+                llmInputEditText.visibility = View.GONE
+                llmSendButton.visibility = View.GONE
+                llmOutputLabel.visibility = View.GONE
+                llmOutputTextView.visibility = View.GONE
+                llmStatusTextView.visibility = View.GONE
             }
         }
     }
@@ -440,6 +549,8 @@ class MainActivity : AppCompatActivity() {
         releaseCurrentAlgorithm()
         currentAlgorithm = newAlgorithm
         isInitialized = false
+        // アルゴリズム切り替え時にProcessing Timeをリセット
+        processingTimeTextView.text = "Processing Time: -- ms"
         updateUIVisibility()
 
         if (modeRadioGroup.checkedRadioButtonId == R.id.imageRadioButton) {
@@ -456,6 +567,8 @@ class MainActivity : AppCompatActivity() {
             trackerSample.releaseTracker()
             speechSample.releaseSpeech()
             voiceSample.releaseVoice()
+            llmSample.release()
+            multimodalLLMSample.release()
         } catch (e: Exception) {
             Log.e("AILIA_Error", "Error releasing algorithms: ${e.message}")
         }
@@ -570,6 +683,77 @@ class MainActivity : AppCompatActivity() {
                     isInitialized = voiceSample.initializeVoice()
                 }
 
+                AlgorithmType.LLM -> {
+                    runOnUiThread {
+                        llmStatusTextView.text = "Status: Downloading model..."
+                        llmSendButton.isEnabled = false
+                    }
+                    cameraExecutor.execute {
+                        val success = llmSample.initialize(this@MainActivity, object : ModelDownloader.DownloadListener {
+                            override fun onProgress(bytesDownloaded: Long, totalBytes: Long) {
+                                val percent = if (totalBytes > 0) (bytesDownloaded * 100 / totalBytes) else 0
+                                runOnUiThread {
+                                    llmStatusTextView.text = "Status: Downloading model... $percent%"
+                                }
+                            }
+                            override fun onComplete(file: java.io.File) {
+                                Log.i("AILIA_Main", "Model download complete")
+                            }
+                            override fun onError(error: String) {
+                                runOnUiThread {
+                                    llmStatusTextView.text = "Status: Download error - $error"
+                                }
+                            }
+                        })
+                        runOnUiThread {
+                            isInitialized = success
+                            if (success) {
+                                llmStatusTextView.text = "Status: Ready"
+                                llmSendButton.isEnabled = true
+                                setupLLMSendButton()
+                            } else {
+                                llmStatusTextView.text = "Status: Initialization failed"
+                            }
+                        }
+                    }
+                    return // Don't wait for async initialization
+                }
+                AlgorithmType.MULTIMODAL_LLM -> {
+                    runOnUiThread {
+                        llmStatusTextView.text = "Status: Downloading model..."
+                        llmSendButton.isEnabled = false
+                    }
+                    cameraExecutor.execute {
+                        val success = multimodalLLMSample.initialize(this@MainActivity, object : AiliaMultimodalLLMSample.MultimodalLLMListener {
+                            override fun onDownloadProgress(fileName: String, bytesDownloaded: Long, totalBytes: Long) {
+                                val percent = if (totalBytes > 0) (bytesDownloaded * 100 / totalBytes) else 0
+                                runOnUiThread {
+                                    llmStatusTextView.text = "Status: Downloading $fileName... $percent%"
+                                }
+                            }
+                            override fun onToken(token: String) {}
+                            override fun onComplete(fullResponse: String) {}
+                            override fun onError(error: String) {
+                                runOnUiThread {
+                                    llmStatusTextView.text = "Status: Error - $error"
+                                }
+                            }
+                        })
+                        runOnUiThread {
+                            isInitialized = success
+                            if (success) {
+                                llmStatusTextView.text = "Status: Ready"
+                                llmSendButton.isEnabled = true
+                                setupMultimodalLLMSendButton()
+                                // Load the sample image
+                                loadSampleImageForMultimodal()
+                            } else {
+                                llmStatusTextView.text = "Status: Initialization failed"
+                            }
+                        }
+                    }
+                    return // Don't wait for async initialization
+                }
             }
 
             if (isInitialized) {
@@ -585,7 +769,120 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun setupLLMSendButton() {
+        llmSendButton.setOnClickListener {
+            val userInput = llmInputEditText.text.toString().trim()
+            if (userInput.isEmpty()) {
+                llmStatusTextView.text = "Status: Please enter a message"
+                return@setOnClickListener
+            }
+
+            llmSendButton.isEnabled = false
+            llmStatusTextView.text = "Status: Generating..."
+            llmOutputTextView.text = ""
+
+            cameraExecutor.execute {
+                val processingTime = llmSample.chat(userInput, object : AiliaLLMSample.LLMListener {
+                    override fun onToken(token: String) {
+                        runOnUiThread {
+                            llmOutputTextView.append(token)
+                        }
+                    }
+                    override fun onComplete(fullResponse: String) {
+                        runOnUiThread {
+                            llmStatusTextView.text = "Status: Complete"
+                        }
+                    }
+                    override fun onError(error: String) {
+                        runOnUiThread {
+                            llmStatusTextView.text = "Status: Error - $error"
+                        }
+                    }
+                })
+                runOnUiThread {
+                    llmSendButton.isEnabled = true
+                    if (processingTime > 0) {
+                        processingTimeTextView.text = "Processing Time: ${processingTime}ms (LLM)"
+                    }
+                }
+            }
+        }
+    }
+
+    private fun setupMultimodalLLMSendButton() {
+        llmSendButton.setOnClickListener {
+            val userInput = llmInputEditText.text.toString().trim()
+            if (userInput.isEmpty()) {
+                llmStatusTextView.text = "Status: Please enter a question about the image"
+                return@setOnClickListener
+            }
+
+            llmSendButton.isEnabled = false
+            llmStatusTextView.text = "Status: Generating..."
+            llmOutputTextView.text = ""
+
+            cameraExecutor.execute {
+                val processingTime = multimodalLLMSample.chatWithImage(null, userInput, object : AiliaMultimodalLLMSample.MultimodalLLMListener {
+                    override fun onDownloadProgress(fileName: String, bytesDownloaded: Long, totalBytes: Long) {}
+                    override fun onToken(token: String) {
+                        runOnUiThread {
+                            llmOutputTextView.append(token)
+                        }
+                    }
+                    override fun onComplete(fullResponse: String) {
+                        runOnUiThread {
+                            llmStatusTextView.text = "Status: Complete"
+                        }
+                    }
+                    override fun onError(error: String) {
+                        runOnUiThread {
+                            llmStatusTextView.text = "Status: Error - $error"
+                        }
+                    }
+                })
+                runOnUiThread {
+                    llmSendButton.isEnabled = true
+                    if (processingTime > 0) {
+                        processingTimeTextView.text = "Processing Time: ${processingTime}ms (MultimodalLLM)"
+                    }
+                }
+            }
+        }
+    }
+
+    private fun loadSampleImageForMultimodal() {
+        val imagePath = multimodalLLMSample.getSampleImagePath()
+        if (imagePath != null) {
+            val bitmap = android.graphics.BitmapFactory.decodeFile(imagePath)
+            if (bitmap != null) {
+                imageView.setImageBitmap(bitmap)
+            }
+        }
+    }
+
     private fun processImageMode() {
+        // LLMは非同期初期化のため、このメソッドでは処理しない
+        if (currentAlgorithm == AlgorithmType.LLM) {
+            if (!isInitialized) {
+                initializeAilia()
+            }
+            return
+        }
+
+        // MultimodalLLMはperson画像を表示してから初期化
+        if (currentAlgorithm == AlgorithmType.MULTIMODAL_LLM) {
+            // person画像をmultimodalImageViewに表示
+            val options = BitmapFactory.Options()
+            options.inScaled = false
+            val personBmp = BitmapFactory.decodeResource(this.resources, R.raw.person, options)
+            multimodalImageView.setImageBitmap(personBmp)
+
+            if (!isInitialized) {
+                initializeAilia()
+            }
+            return
+        }
+
         if (isProcessing.get()) {
             return
         }
