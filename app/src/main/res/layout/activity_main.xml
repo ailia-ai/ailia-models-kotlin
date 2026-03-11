@@ -204,6 +204,53 @@
                 android:visibility="gone" />
 
             <TextView
+                android:id="@+id/voiceModelLabel"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="8dp"
+                android:text="Voice Model:"
+                android:textColor="?android:attr/textColorPrimary"
+                android:textSize="16sp"
+                android:textStyle="bold"
+                android:visibility="gone" />
+
+            <Spinner
+                android:id="@+id/voiceModelSpinner"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="8dp"
+                android:visibility="gone" />
+
+            <TextView
+                android:id="@+id/voiceStatusTextView"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="8dp"
+                android:text="Status: Ready"
+                android:textColor="?android:attr/textColorSecondary"
+                android:textSize="14sp"
+                android:visibility="gone" />
+
+            <Button
+                android:id="@+id/voiceGenerateButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="end"
+                android:layout_marginBottom="8dp"
+                android:text="Generate"
+                android:visibility="gone" />
+
+            <TextView
+                android:id="@+id/voiceResultTextView"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="16dp"
+                android:text=""
+                android:textColor="?android:attr/textColorPrimary"
+                android:textSize="14sp"
+                android:visibility="gone" />
+
+            <TextView
                 android:id="@+id/llmInputLabel"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"

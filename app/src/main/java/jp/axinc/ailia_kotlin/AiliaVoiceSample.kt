@@ -13,6 +13,7 @@ import axip.ailia_voice.AiliaVoice.Companion.AILIA_VOICE_G2P_TYPE_GPT_SOVITS_ZH
 
 import java.io.File
 import java.io.FileOutputStream
+import java.net.HttpURLConnection
 import java.net.URL
 import java.util.concurrent.Callable
 import java.util.concurrent.Executors
@@ -37,7 +38,14 @@ class AiliaVoiceSample {
         private var isInitialized = false
     }
 
+    interface DownloadListener {
+        fun onProgress(fileName: String, bytesDownloaded: Long, totalBytes: Long)
+        fun onComplete()
+        fun onError(error: String)
+    }
+
     var modelType: VoiceModelType = VoiceModelType.GPT_SOVITS_V1
+    private var downloadListener: DownloadListener? = null
 
     private fun modelDirectory() : String{
         return Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS).absolutePath
@@ -51,7 +59,26 @@ class AiliaVoiceSample {
                 return path
             }
             File(path).parentFile?.mkdirs()
-            URL(link).openStream().copyTo(FileOutputStream(File(path)))
+            val tmpFile = File("$path.tmp")
+            val url = URL(link)
+            val connection = url.openConnection() as HttpURLConnection
+            connection.connectTimeout = 30000
+            connection.readTimeout = 60000
+            connection.connect()
+            val totalBytes = connection.contentLengthLong
+            connection.inputStream.use { input ->
+                FileOutputStream(tmpFile).use { output ->
+                    val buffer = ByteArray(8192)
+                    var bytesDownloaded: Long = 0
+                    var bytesRead: Int
+                    while (input.read(buffer).also { bytesRead = it } != -1) {
+                        output.write(buffer, 0, bytesRead)
+                        bytesDownloaded += bytesRead
+                        downloadListener?.onProgress(name, bytesDownloaded, totalBytes)
+                    }
+                }
+            }
+            tmpFile.renameTo(File(path))
         } catch (e: Exception) {
             Log.e("AILIA_Main", "Model Download Failed: $name", e)
             return ""
@@ -60,17 +87,10 @@ class AiliaVoiceSample {
     }
 
     private fun downloadFiles(baseUrl: String, prefix: String, files: List<String>) {
-        val executor = Executors.newFixedThreadPool(2)
-        val futures = mutableListOf<Future<String>>()
         for (item in files) {
             val url = "$baseUrl/$item"
-            val future = executor.submit(Callable {
-                download(url, "$prefix$item")
-            })
-            futures.add(future)
+            download(url, "$prefix$item")
         }
-        futures.map { it.get() }
-        executor.shutdown()
     }
 
     private fun downloadJapaneseDictionary() {
@@ -160,7 +180,8 @@ class AiliaVoiceSample {
         )
     }
 
-    fun initializeVoice(): Boolean {
+    fun initializeVoice(listener: DownloadListener? = null): Boolean {
+        this.downloadListener = listener
         return try {
             Log.i(TAG, "Begin model download for $modelType")
 
@@ -246,11 +267,15 @@ class AiliaVoiceSample {
 
             isInitialized = true
             Log.i(TAG, "Voice initialized successfully with $modelType")
+            listener?.onComplete()
             true
         } catch (e: Exception) {
             Log.e(TAG, "Failed to initialize voice: ${e.javaClass.name}: ${e.message}")
+            listener?.onError(e.message ?: "Unknown error")
             releaseVoice()
             false
+        } finally {
+            this.downloadListener = null
         }
     }
 

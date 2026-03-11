@@ -19,3 +19,6 @@
 [submodule "ailia-llm-jni"]
 	path = ailia-llm-jni
 	url = git@github.com:ailia-ai/ailia-llm-jni.git
+[submodule "ailia-audio-jni"]
+	path = ailia-audio-jni
+	url = https://github.com/ailia-ai/ailia-audio-jni.git

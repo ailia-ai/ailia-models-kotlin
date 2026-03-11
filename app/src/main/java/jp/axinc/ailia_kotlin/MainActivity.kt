@@ -39,6 +39,10 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tokenizerInputEditText: EditText
     private lateinit var tokenizerOutputTextView: TextView
     private lateinit var trackingResultTextView: TextView
+    private lateinit var voiceModelSpinner: Spinner
+    private lateinit var voiceStatusTextView: TextView
+    private lateinit var voiceGenerateButton: Button
+    private lateinit var voiceResultTextView: TextView
     private lateinit var llmInputLabel: TextView
     private lateinit var llmInputEditText: EditText
     private lateinit var llmSendButton: Button
@@ -70,6 +74,8 @@ class MainActivity : AppCompatActivity() {
     private var imageAnalyzer: ImageAnalysis? = null
     private var camera: Camera? = null
 
+    private var selectedVoiceModelType: VoiceModelType = VoiceModelType.GPT_SOVITS_V1
+
     enum class AlgorithmType {
         POSE_ESTIMATION,
         OBJECT_DETECTION,
@@ -78,9 +84,6 @@ class MainActivity : AppCompatActivity() {
         CLASSIFICATION,
         SPEECH_TO_TEXT,
         TEXT_TO_SPEECH,
-        TEXT_TO_SPEECH_V2,
-        TEXT_TO_SPEECH_V3,
-        TEXT_TO_SPEECH_V2_PRO,
         LLM,
         MULTIMODAL_LLM,
     }
@@ -125,6 +128,10 @@ class MainActivity : AppCompatActivity() {
         tokenizerInputEditText = findViewById(R.id.tokenizerInputEditText)
         tokenizerOutputTextView = findViewById(R.id.tokenizerOutputTextView)
         trackingResultTextView = findViewById(R.id.trackingResultTextView)
+        voiceModelSpinner = findViewById(R.id.voiceModelSpinner)
+        voiceStatusTextView = findViewById(R.id.voiceStatusTextView)
+        voiceGenerateButton = findViewById(R.id.voiceGenerateButton)
+        voiceResultTextView = findViewById(R.id.voiceResultTextView)
         llmInputLabel = findViewById(R.id.llmInputLabel)
         llmInputEditText = findViewById(R.id.llmInputEditText)
         llmSendButton = findViewById(R.id.llmSendButton)
@@ -143,9 +150,6 @@ class MainActivity : AppCompatActivity() {
             "Classification",
             "Speech2Text",
             "Text2Speech",
-            "Text2Speech_V2",
-            "Text2Speech_V3",
-            "Text2Speech_V2Pro",
             "LLM",
             "MultimodalLLM",
         )
@@ -280,71 +284,8 @@ class MainActivity : AppCompatActivity() {
             }
 
             AlgorithmType.TEXT_TO_SPEECH -> {
-                var refAudio: AudioUtil.WavFileData = AudioUtil().loadRawAudio(this.resources.openRawResource(R.raw.reference_audio_girl))
-                var inferenceTime = voiceSample.textToSpeech(
-                    refAudio.audioData,
-                    refAudio.channels,
-                    refAudio.sampleRate,
-                    "水をマレーシアから買わなくてはならない。",
-                    "ja",
-                    "Hello world. We will introduce ailia AI voice.",
-                    "en",
-                )
-                runOnUiThread {
-                    classificationResultTextView.text = "Voice V1 Generated"
-                }
-                inferenceTime
-            }
-
-            AlgorithmType.TEXT_TO_SPEECH_V2 -> {
-                var refAudio: AudioUtil.WavFileData = AudioUtil().loadRawAudio(this.resources.openRawResource(R.raw.reference_audio_girl))
-                var inferenceTime = voiceSample.textToSpeech(
-                    refAudio.audioData,
-                    refAudio.channels,
-                    refAudio.sampleRate,
-                    "水をマレーシアから買わなくてはならない。",
-                    "ja",
-                    "こんにちは。今日はいい天気ですね。",
-                    "ja",
-                )
-                runOnUiThread {
-                    classificationResultTextView.text = "Voice V2 Generated"
-                }
-                inferenceTime
-            }
-
-            AlgorithmType.TEXT_TO_SPEECH_V3 -> {
-                var refAudio: AudioUtil.WavFileData = AudioUtil().loadRawAudio(this.resources.openRawResource(R.raw.reference_audio_girl))
-                var inferenceTime = voiceSample.textToSpeech(
-                    refAudio.audioData,
-                    refAudio.channels,
-                    refAudio.sampleRate,
-                    "水をマレーシアから買わなくてはならない。",
-                    "ja",
-                    "こんにちは。今日はいい天気ですね。",
-                    "ja",
-                )
-                runOnUiThread {
-                    classificationResultTextView.text = "Voice V3 Generated"
-                }
-                inferenceTime
-            }
-
-            AlgorithmType.TEXT_TO_SPEECH_V2_PRO -> {
-                var refAudio: AudioUtil.WavFileData = AudioUtil().loadRawAudio(this.resources.openRawResource(R.raw.reference_audio_girl))
-                var inferenceTime = voiceSample.textToSpeech(
-                    refAudio.audioData,
-                    refAudio.channels,
-                    refAudio.sampleRate,
-                    "水をマレーシアから買わなくてはならない。",
-                    "ja",
-                    "こんにちは。今日はいい天気ですね。",
-                    "ja",
-                )
-                runOnUiThread {
-                    classificationResultTextView.text = "Voice V2-Pro Generated"
-                }
-                inferenceTime
+                // Voice is handled asynchronously via the generate button
+                0
             }
 
             AlgorithmType.LLM, AlgorithmType.MULTIMODAL_LLM -> {
@@ -376,6 +317,11 @@ class MainActivity : AppCompatActivity() {
                 llmOutputLabel.visibility = View.GONE
                 llmOutputTextView.visibility = View.GONE
                 llmStatusTextView.visibility = View.GONE
+                findViewById<TextView>(R.id.voiceModelLabel).visibility = View.GONE
+                voiceModelSpinner.visibility = View.GONE
+                voiceStatusTextView.visibility = View.GONE
+                voiceGenerateButton.visibility = View.GONE
+                voiceResultTextView.visibility = View.GONE
             }
 
             AlgorithmType.CLASSIFICATION -> {
@@ -400,6 +346,11 @@ class MainActivity : AppCompatActivity() {
                 llmOutputLabel.visibility = View.GONE
                 llmOutputTextView.visibility = View.GONE
                 llmStatusTextView.visibility = View.GONE
+                findViewById<TextView>(R.id.voiceModelLabel).visibility = View.GONE
+                voiceModelSpinner.visibility = View.GONE
+                voiceStatusTextView.visibility = View.GONE
+                voiceGenerateButton.visibility = View.GONE
+                voiceResultTextView.visibility = View.GONE
             }
 
             AlgorithmType.TRACKING -> {
@@ -424,6 +375,11 @@ class MainActivity : AppCompatActivity() {
                 llmOutputLabel.visibility = View.GONE
                 llmOutputTextView.visibility = View.GONE
                 llmStatusTextView.visibility = View.GONE
+                findViewById<TextView>(R.id.voiceModelLabel).visibility = View.GONE
+                voiceModelSpinner.visibility = View.GONE
+                voiceStatusTextView.visibility = View.GONE
+                voiceGenerateButton.visibility = View.GONE
+                voiceResultTextView.visibility = View.GONE
             }
 
             AlgorithmType.SPEECH_TO_TEXT -> {
@@ -443,6 +399,11 @@ class MainActivity : AppCompatActivity() {
                 llmOutputLabel.visibility = View.GONE
                 llmOutputTextView.visibility = View.GONE
                 llmStatusTextView.visibility = View.GONE
+                findViewById<TextView>(R.id.voiceModelLabel).visibility = View.GONE
+                voiceModelSpinner.visibility = View.GONE
+                voiceStatusTextView.visibility = View.GONE
+                voiceGenerateButton.visibility = View.GONE
+                voiceResultTextView.visibility = View.GONE
             }
             AlgorithmType.LLM -> {
                 imageView.visibility = View.GONE
@@ -461,6 +422,11 @@ class MainActivity : AppCompatActivity() {
                 llmOutputLabel.visibility = View.VISIBLE
                 llmOutputTextView.visibility = View.VISIBLE
                 llmStatusTextView.visibility = View.VISIBLE
+                findViewById<TextView>(R.id.voiceModelLabel).visibility = View.GONE
+                voiceModelSpinner.visibility = View.GONE
+                voiceStatusTextView.visibility = View.GONE
+                voiceGenerateButton.visibility = View.GONE
+                voiceResultTextView.visibility = View.GONE
                 // モード切り替え時にリセット
                 llmInputEditText.setText("Hello!")
                 llmOutputTextView.text = ""
@@ -484,6 +450,11 @@ class MainActivity : AppCompatActivity() {
                 llmOutputLabel.visibility = View.VISIBLE
                 llmOutputTextView.visibility = View.VISIBLE
                 llmStatusTextView.visibility = View.VISIBLE
+                findViewById<TextView>(R.id.voiceModelLabel).visibility = View.GONE
+                voiceModelSpinner.visibility = View.GONE
+                voiceStatusTextView.visibility = View.GONE
+                voiceGenerateButton.visibility = View.GONE
+                voiceResultTextView.visibility = View.GONE
                 // モード切り替え時にリセット
                 llmInputEditText.setText("What is in this image?")
                 llmOutputTextView.text = ""
@@ -491,19 +462,31 @@ class MainActivity : AppCompatActivity() {
                 llmSendButton.isEnabled = false
             }
 
-            AlgorithmType.TEXT_TO_SPEECH,
-            AlgorithmType.TEXT_TO_SPEECH_V2,
-            AlgorithmType.TEXT_TO_SPEECH_V3,
-            AlgorithmType.TEXT_TO_SPEECH_V2_PRO -> {
+            AlgorithmType.TEXT_TO_SPEECH -> {
                 imageView.visibility = View.GONE
                 cameraPreviewView.visibility = View.GONE
                 resultScrollView.visibility = View.VISIBLE
-                classificationResultTextView.visibility = View.VISIBLE
+                classificationResultTextView.visibility = View.GONE
                 tokenizerInputEditText.visibility = View.GONE
                 tokenizerOutputTextView.visibility = View.GONE
                 trackingResultTextView.visibility = View.GONE
                 findViewById<TextView>(R.id.tokenizerInputLabel).visibility = View.GONE
                 findViewById<TextView>(R.id.tokenizerOutputLabel).visibility = View.GONE
+                multimodalImageView.visibility = View.GONE
+                llmInputLabel.visibility = View.GONE
+                llmInputEditText.visibility = View.GONE
+                llmSendButton.visibility = View.GONE
+                llmOutputLabel.visibility = View.GONE
+                llmOutputTextView.visibility = View.GONE
+                llmStatusTextView.visibility = View.GONE
+                findViewById<TextView>(R.id.voiceModelLabel).visibility = View.VISIBLE
+                voiceModelSpinner.visibility = View.VISIBLE
+                voiceStatusTextView.visibility = View.VISIBLE
+                voiceGenerateButton.visibility = View.VISIBLE
+                voiceResultTextView.visibility = View.VISIBLE
+                voiceGenerateButton.isEnabled = false
+                voiceResultTextView.text = ""
+                voiceStatusTextView.text = "Status: Initializing..."
             }
 
             else -> {
@@ -528,6 +511,11 @@ class MainActivity : AppCompatActivity() {
                 llmOutputLabel.visibility = View.GONE
                 llmOutputTextView.visibility = View.GONE
                 llmStatusTextView.visibility = View.GONE
+                findViewById<TextView>(R.id.voiceModelLabel).visibility = View.GONE
+                voiceModelSpinner.visibility = View.GONE
+                voiceStatusTextView.visibility = View.GONE
+                voiceGenerateButton.visibility = View.GONE
+                voiceResultTextView.visibility = View.GONE
             }
         }
     }
@@ -664,23 +652,40 @@ class MainActivity : AppCompatActivity() {
                 }
 
                 AlgorithmType.TEXT_TO_SPEECH -> {
-                    voiceSample.modelType = VoiceModelType.GPT_SOVITS_V1
-                    isInitialized = voiceSample.initializeVoice()
-                }
-
-                AlgorithmType.TEXT_TO_SPEECH_V2 -> {
-                    voiceSample.modelType = VoiceModelType.GPT_SOVITS_V2
-                    isInitialized = voiceSample.initializeVoice()
-                }
-
-                AlgorithmType.TEXT_TO_SPEECH_V3 -> {
-                    voiceSample.modelType = VoiceModelType.GPT_SOVITS_V3
-                    isInitialized = voiceSample.initializeVoice()
-                }
-
-                AlgorithmType.TEXT_TO_SPEECH_V2_PRO -> {
-                    voiceSample.modelType = VoiceModelType.GPT_SOVITS_V2_PRO
-                    isInitialized = voiceSample.initializeVoice()
+                    runOnUiThread {
+                        voiceStatusTextView.text = "Status: Downloading model..."
+                        voiceGenerateButton.isEnabled = false
+                    }
+                    voiceSample.modelType = selectedVoiceModelType
+                    cameraExecutor.execute {
+                        val success = voiceSample.initializeVoice(object : AiliaVoiceSample.DownloadListener {
+                            override fun onProgress(fileName: String, bytesDownloaded: Long, totalBytes: Long) {
+                                val percent = if (totalBytes > 0) (bytesDownloaded * 100 / totalBytes) else 0
+                                runOnUiThread {
+                                    voiceStatusTextView.text = "Status: Downloading $fileName... $percent%"
+                                }
+                            }
+                            override fun onComplete() {
+                                Log.i("AILIA_Main", "Voice model download complete")
+                            }
+                            override fun onError(error: String) {
+                                runOnUiThread {
+                                    voiceStatusTextView.text = "Status: Error - $error"
+                                }
+                            }
+                        })
+                        runOnUiThread {
+                            isInitialized = success
+                            if (success) {
+                                voiceStatusTextView.text = "Status: Ready"
+                                voiceGenerateButton.isEnabled = true
+                                setupVoiceGenerateButton()
+                            } else {
+                                voiceStatusTextView.text = "Status: Initialization failed"
+                            }
+                        }
+                    }
+                    return // Don't wait for async initialization
                 }
 
                 AlgorithmType.LLM -> {
@@ -860,7 +865,85 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun setupVoiceModelSpinner() {
+        val voiceModels = arrayOf("V1", "V2", "V3", "V2-Pro")
+        val adapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, voiceModels)
+        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+        voiceModelSpinner.adapter = adapter
+
+        voiceModelSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
+                val newType = when (position) {
+                    0 -> VoiceModelType.GPT_SOVITS_V1
+                    1 -> VoiceModelType.GPT_SOVITS_V2
+                    2 -> VoiceModelType.GPT_SOVITS_V3
+                    3 -> VoiceModelType.GPT_SOVITS_V2_PRO
+                    else -> VoiceModelType.GPT_SOVITS_V1
+                }
+                if (newType != selectedVoiceModelType) {
+                    selectedVoiceModelType = newType
+                    // モデル切り替え時に再初期化
+                    if (currentAlgorithm == AlgorithmType.TEXT_TO_SPEECH) {
+                        voiceSample.releaseVoice()
+                        isInitialized = false
+                        voiceGenerateButton.isEnabled = false
+                        voiceResultTextView.text = ""
+                        initializeAilia()
+                    }
+                }
+            }
+            override fun onNothingSelected(parent: AdapterView<*>?) {}
+        }
+    }
+
+    private fun setupVoiceGenerateButton() {
+        voiceGenerateButton.setOnClickListener {
+            voiceGenerateButton.isEnabled = false
+            voiceStatusTextView.text = "Status: Generating..."
+            voiceResultTextView.text = ""
+
+            cameraExecutor.execute {
+                val refAudio: AudioUtil.WavFileData = AudioUtil().loadRawAudio(this.resources.openRawResource(R.raw.reference_audio_girl))
+                val text: String
+                val textLang: String
+                if (selectedVoiceModelType == VoiceModelType.GPT_SOVITS_V1) {
+                    text = "Hello world. We will introduce ailia AI voice."
+                    textLang = "en"
+                } else {
+                    text = "こんにちは。今日はいい天気ですね。"
+                    textLang = "ja"
+                }
+                val inferenceTime = voiceSample.textToSpeech(
+                    refAudio.audioData,
+                    refAudio.channels,
+                    refAudio.sampleRate,
+                    "水をマレーシアから買わなくてはならない。",
+                    "ja",
+                    text,
+                    textLang,
+                )
+                runOnUiThread {
+                    voiceGenerateButton.isEnabled = true
+                    voiceStatusTextView.text = "Status: Complete"
+                    voiceResultTextView.text = "${selectedVoiceModelType.name} Generated"
+                    if (inferenceTime > 0) {
+                        processingTimeTextView.text = "Processing Time: ${inferenceTime}ms (Voice)"
+                    }
+                }
+            }
+        }
+    }
+
     private fun processImageMode() {
+        // TEXT_TO_SPEECHは非同期初期化のため、このメソッドでは処理しない
+        if (currentAlgorithm == AlgorithmType.TEXT_TO_SPEECH) {
+            if (!isInitialized) {
+                setupVoiceModelSpinner()
+                initializeAilia()
+            }
+            return
+        }
+
         // LLMは非同期初期化のため、このメソッドでは処理しない
         if (currentAlgorithm == AlgorithmType.LLM) {
             if (!isInitialized) {
