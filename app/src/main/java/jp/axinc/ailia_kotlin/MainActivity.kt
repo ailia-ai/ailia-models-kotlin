@@ -231,7 +231,16 @@ class MainActivity : AppCompatActivity() {
 
                     envSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
                         override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
-                            selectedEnvId = ailiaEnvironments!![position].id
+                            val newEnvId = ailiaEnvironments!![position].id
+                            if (newEnvId != selectedEnvId) {
+                                selectedEnvId = newEnvId
+                                if (isInitialized) {
+                                    releaseCurrentAlgorithm()
+                                    isInitialized = false
+                                    isDownloadingModel.set(false)
+                                    processImageMode()
+                                }
+                            }
                         }
                         override fun onNothingSelected(parent: AdapterView<*>?) {}
                     }
@@ -270,7 +279,16 @@ class MainActivity : AppCompatActivity() {
 
                         envSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
                             override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
-                                selectedEnvId = ailiaEnvironments!![position].id
+                                val newEnvId = ailiaEnvironments!![position].id
+                                if (newEnvId != selectedEnvId) {
+                                    selectedEnvId = newEnvId
+                                    if (isInitialized) {
+                                        releaseCurrentAlgorithm()
+                                        isInitialized = false
+                                        isDownloadingModel.set(false)
+                                        processImageMode()
+                                    }
+                                }
                             }
                             override fun onNothingSelected(parent: AdapterView<*>?) {}
                         }
@@ -296,7 +314,16 @@ class MainActivity : AppCompatActivity() {
 
                     envSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
                         override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
-                            selectedEnvId = tfliteEnvIds[position]
+                            val newEnvId = tfliteEnvIds[position]
+                            if (newEnvId != selectedEnvId) {
+                                selectedEnvId = newEnvId
+                                if (isInitialized) {
+                                    releaseCurrentAlgorithm()
+                                    isInitialized = false
+                                    isDownloadingModel.set(false)
+                                    processImageMode()
+                                }
+                            }
                         }
                         override fun onNothingSelected(parent: AdapterView<*>?) {}
                     }
