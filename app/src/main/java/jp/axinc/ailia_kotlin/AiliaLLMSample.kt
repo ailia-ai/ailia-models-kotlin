@@ -2,8 +2,8 @@ package jp.axinc.ailia_kotlin
 
 import android.content.Context
 import android.util.Log
-import ai.ailia.llm.AiliaLLM
-import ai.ailia.llm.AiliaLLMChatMessage
+import axip.ailia_llm.AiliaLLM
+import axip.ailia_llm.AiliaLLMChatMessage
 
 /**
  * Sample class demonstrating ailia LLM inference for text generation.

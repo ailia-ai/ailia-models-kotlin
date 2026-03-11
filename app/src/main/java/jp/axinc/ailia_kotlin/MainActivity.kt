@@ -20,7 +20,7 @@ import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import axip.ailia.*
 import axip.ailia_tflite.*
-import ai.ailia.llm.AiliaLLM
+import axip.ailia_llm.AiliaLLM
 import java.io.*
 import java.nio.ByteBuffer
 import java.nio.ByteOrder

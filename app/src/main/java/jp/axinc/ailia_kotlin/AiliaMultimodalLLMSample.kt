@@ -4,9 +4,9 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.util.Log
-import ai.ailia.llm.AiliaLLM
-import ai.ailia.llm.AiliaLLMMediaData
-import ai.ailia.llm.AiliaLLMMultimodalChatMessage
+import axip.ailia_llm.AiliaLLM
+import axip.ailia_llm.AiliaLLMMediaData
+import axip.ailia_llm.AiliaLLMMultimodalChatMessage
 import java.io.File
 import java.io.FileOutputStream
 
@@ -182,7 +182,7 @@ class AiliaMultimodalLLMSample {
             conversationHistory.add(userMessage)
 
             // Set the multimodal prompt
-            llm!!.setMultimodalPrompt(conversationHistory.toTypedArray())
+            llm!!.setPrompt(conversationHistory.toTypedArray())
 
             // Generate response token by token
             val responseBuilder = StringBuilder()
