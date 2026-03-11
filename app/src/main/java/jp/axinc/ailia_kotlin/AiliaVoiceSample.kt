@@ -3,12 +3,13 @@ package jp.axinc.ailia_kotlin
 import android.os.Environment
 import android.util.Log
 import axip.ailia_voice.AiliaVoice
-import axip.ailia_voice.AiliaVoice.Companion.AILIA_VOICE_CLEANER_TYPE_BASIC
 import axip.ailia_voice.AiliaVoice.Companion.AILIA_VOICE_DICTIONARY_TYPE_OPEN_JTALK
 import axip.ailia_voice.AiliaVoice.Companion.AILIA_VOICE_DICTIONARY_TYPE_G2P_EN
-import axip.ailia_voice.AiliaVoice.Companion.AILIA_VOICE_MODEL_TYPE_GPT_SOVITS
+import axip.ailia_voice.AiliaVoice.Companion.AILIA_VOICE_DICTIONARY_TYPE_G2P_CN
+import axip.ailia_voice.AiliaVoice.Companion.AILIA_VOICE_DICTIONARY_TYPE_G2PW
 import axip.ailia_voice.AiliaVoice.Companion.AILIA_VOICE_G2P_TYPE_GPT_SOVITS_EN
 import axip.ailia_voice.AiliaVoice.Companion.AILIA_VOICE_G2P_TYPE_GPT_SOVITS_JA
+import axip.ailia_voice.AiliaVoice.Companion.AILIA_VOICE_G2P_TYPE_GPT_SOVITS_ZH
 
 import java.io.File
 import java.io.FileOutputStream
@@ -21,7 +22,13 @@ import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioTrack
 import kotlin.math.roundToInt
-import kotlin.concurrent.thread
+
+enum class VoiceModelType {
+    GPT_SOVITS_V1,
+    GPT_SOVITS_V2,
+    GPT_SOVITS_V3,
+    GPT_SOVITS_V2_PRO,
+}
 
 class AiliaVoiceSample {
     companion object {
@@ -29,6 +36,8 @@ class AiliaVoiceSample {
         private var voice: AiliaVoice? = null
         private var isInitialized = false
     }
+
+    var modelType: VoiceModelType = VoiceModelType.GPT_SOVITS_V1
 
     private fun modelDirectory() : String{
         return Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS).absolutePath
@@ -41,137 +50,134 @@ class AiliaVoiceSample {
             if (File(path).exists()) {
                 return path
             }
+            File(path).parentFile?.mkdirs()
             URL(link).openStream().copyTo(FileOutputStream(File(path)))
         } catch (e: Exception) {
-            Log.e("AILIA_Main", "Model Download Failed", e)
+            Log.e("AILIA_Main", "Model Download Failed: $name", e)
             return ""
         }
         return path
     }
 
-    private fun downloadJapaneseDictionry() {
+    private fun downloadFiles(baseUrl: String, prefix: String, files: List<String>) {
         val executor = Executors.newFixedThreadPool(2)
-
-        val baseUrl = "https://storage.googleapis.com/ailia-models"
-        val tasks = listOf(
-            "char.bin",
-            "COPYING",
-            "left-id.def",
-            "matrix.bin",
-            "pos-id.def",
-            "rewrite.def",
-            "right-id.def",
-            "sys.dic",
-            "unk.dic"
-        )
-
         val futures = mutableListOf<Future<String>>()
-
-        for (item in tasks) {
-            val url = "$baseUrl/open_jtalk/open_jtalk_dic_utf_8-1.11/$item"
+        for (item in files) {
+            val url = "$baseUrl/$item"
             val future = executor.submit(Callable {
-                download(url, item)
+                download(url, "$prefix$item")
             })
             futures.add(future)
         }
-
-        val openJTalkPaths = futures.map { it.get() }
-
+        futures.map { it.get() }
         executor.shutdown()
     }
 
-    private fun downloadEnglishDictionry() {
-        val executor = Executors.newFixedThreadPool(2)
-
-        val baseUrl = "https://storage.googleapis.com/ailia-models"
-        val tasks = listOf(
-            "averaged_perceptron_tagger_classes.txt",
-            "averaged_perceptron_tagger_tagdict.txt",
-            "averaged_perceptron_tagger_weights.txt",
-            "cmudict",
-            "g2p_decoder.onnx",
-            "g2p_encoder.onnx",
-            "homographs.en",
+    private fun downloadJapaneseDictionary() {
+        downloadFiles(
+            "https://storage.googleapis.com/ailia-models/open_jtalk/open_jtalk_dic_utf_8-1.11",
+            "",
+            listOf("char.bin", "COPYING", "left-id.def", "matrix.bin", "pos-id.def",
+                   "rewrite.def", "right-id.def", "sys.dic", "unk.dic")
         )
-
-        val futures = mutableListOf<Future<String>>()
-
-        for (item in tasks) {
-            val url = "$baseUrl/g2p_en/$item"
-            val future = executor.submit(Callable {
-                download(url, item)
-            })
-            futures.add(future)
-        }
-
-        val g2penPaths = futures.map { it.get() }
-
-        executor.shutdown()
     }
 
-    private fun downloadUserDictionry() {
-        val executor = Executors.newFixedThreadPool(2)
-
-        val baseUrl = "https://storage.googleapis.com/ailia-models"
-        val tasks = listOf(
-            "user.dict",
+    private fun downloadEnglishDictionary() {
+        downloadFiles(
+            "https://storage.googleapis.com/ailia-models/g2p_en",
+            "",
+            listOf("averaged_perceptron_tagger_classes.txt", "averaged_perceptron_tagger_tagdict.txt",
+                   "averaged_perceptron_tagger_weights.txt", "cmudict", "g2p_decoder.onnx",
+                   "g2p_encoder.onnx", "homographs.en")
         )
-
-        val futures = mutableListOf<Future<String>>()
-
-        for (item in tasks) {
-            val url = "$baseUrl/gpt-sovits-v3/$item"
-            val future = executor.submit(Callable {
-                download(url, item)
-            })
-            futures.add(future)
-        }
-
-        val userDictPaths = futures.map { it.get() }
-
-        executor.shutdown()
     }
 
-    private fun downloadModel() {
-        val executor = Executors.newFixedThreadPool(2)
-
-        val baseUrl = "https://storage.googleapis.com/ailia-models"
-
-        val modelFutures = listOf(
-            executor.submit(Callable {
-                download("$baseUrl/gpt-sovits/t2s_encoder.onnx", "t2s_encoder.onnx")
-            }),
-            executor.submit(Callable {
-                download("$baseUrl/gpt-sovits/t2s_fsdec.onnx", "t2s_fsdec.onnx")
-            }),
-            executor.submit(Callable {
-                download("$baseUrl/gpt-sovits/t2s_sdec.opt3.onnx", "t2s_sdec.opt3.onnx")
-            }),
-            executor.submit(Callable {
-                download("$baseUrl/gpt-sovits/vits.onnx", "vits.onnx")
-            }),
-            executor.submit(Callable {
-                download("$baseUrl/gpt-sovits/cnhubert.onnx", "cnhubert.onnx")
-            })
+    private fun downloadChineseDictionary() {
+        downloadFiles(
+            "https://storage.googleapis.com/ailia-models/g2p_cn",
+            "g2p_cn/",
+            listOf("pinyin.txt", "opencpop-strict.txt", "jieba.dict.utf8",
+                   "hmm_model.utf8", "user.dict.utf8", "idf.utf8", "stop_words.utf8")
         )
+    }
 
-        val modelPaths = modelFutures.map { it.get() }
+    private fun downloadG2pwDictionary() {
+        downloadFiles(
+            "https://storage.googleapis.com/ailia-models/g2pw/1.1",
+            "g2pw/",
+            listOf("g2pW.onnx", "POLYPHONIC_CHARS.txt", "bopomofo_to_pinyin_wo_tune_dict.json")
+        )
+        downloadFiles(
+            "https://raw.githubusercontent.com/axinc-ai/ailia-models/master/audio_processing/gpt-sovits-v2/text/g2pw",
+            "g2pw/",
+            listOf("polyphonic.rep", "polyphonic-fix.rep")
+        )
+    }
 
-        executor.shutdown()
+    private fun downloadUserDictionary() {
+        downloadFiles(
+            "https://storage.googleapis.com/ailia-models/gpt-sovits-v3",
+            "",
+            listOf("user.dict")
+        )
+    }
+
+    private fun downloadModelV1() {
+        downloadFiles(
+            "https://storage.googleapis.com/ailia-models/gpt-sovits",
+            "",
+            listOf("t2s_encoder.onnx", "t2s_fsdec.onnx", "t2s_sdec.opt3.onnx",
+                   "vits.onnx", "cnhubert.onnx")
+        )
+    }
+
+    private fun downloadModelV2() {
+        downloadFiles(
+            "https://storage.googleapis.com/ailia-models/gpt-sovits-v2",
+            "gpt-sovits-v2/",
+            listOf("t2s_encoder.onnx", "t2s_fsdec.onnx", "t2s_sdec.opt.onnx",
+                   "vits.onnx", "cnhubert.onnx", "chinese-roberta.onnx", "vocab.txt")
+        )
+    }
+
+    private fun downloadModelV3() {
+        downloadFiles(
+            "https://storage.googleapis.com/ailia-models/gpt-sovits-v3",
+            "gpt-sovits-v3/",
+            listOf("t2s_encoder.onnx", "t2s_fsdec.onnx", "t2s_sdec.opt.onnx",
+                   "cnhubert.onnx", "vq_model.onnx", "vq_cfm.onnx",
+                   "bigvgan_model.onnx", "chinese-roberta.onnx", "vocab.txt")
+        )
+    }
+
+    private fun downloadModelV2Pro() {
+        downloadFiles(
+            "https://storage.googleapis.com/ailia-models/gpt-sovits-v2-pro",
+            "gpt-sovits-v2-pro/",
+            listOf("t2s_encoder.onnx", "t2s_fsdec.onnx", "t2s_sdec.opt.onnx",
+                   "cnhubert.onnx", "vits.onnx", "sv.onnx",
+                   "chinese-roberta.onnx", "vocab.txt")
+        )
     }
 
     fun initializeVoice(): Boolean {
-        val executor = Executors.newFixedThreadPool(2)
-
         return try {
-            Log.i("AILIA_Main", "Begin model download")
+            Log.i(TAG, "Begin model download for $modelType")
 
-            downloadJapaneseDictionry()
-            downloadEnglishDictionry()
-            downloadUserDictionry()
-            downloadModel()
+            downloadJapaneseDictionary()
+            downloadEnglishDictionary()
+            downloadChineseDictionary()
+            downloadG2pwDictionary()
+            downloadUserDictionary()
 
-            Log.i("AILIA_Main", "End model download")
+            when (modelType) {
+                VoiceModelType.GPT_SOVITS_V1 -> downloadModelV1()
+                VoiceModelType.GPT_SOVITS_V2 -> downloadModelV2()
+                VoiceModelType.GPT_SOVITS_V3 -> downloadModelV3()
+                VoiceModelType.GPT_SOVITS_V2_PRO -> downloadModelV2Pro()
+            }
+
+            Log.i(TAG, "End model download")
 
             if (isInitialized) {
                 releaseVoice()
@@ -183,22 +189,66 @@ class AiliaVoiceSample {
             voice?.setUserDictionaryFile(path = "${dir}/user.dict", AILIA_VOICE_DICTIONARY_TYPE_OPEN_JTALK)
             voice?.openDictionaryFile(path = dir, dictionaryType = AILIA_VOICE_DICTIONARY_TYPE_OPEN_JTALK)
             voice?.openDictionaryFile(path = dir, dictionaryType = AILIA_VOICE_DICTIONARY_TYPE_G2P_EN)
+            voice?.openDictionaryFile(path = "${dir}/g2p_cn", dictionaryType = AILIA_VOICE_DICTIONARY_TYPE_G2P_CN)
+            voice?.openDictionaryFile(path = "${dir}/g2pw", dictionaryType = AILIA_VOICE_DICTIONARY_TYPE_G2PW)
 
-            val encoderPath = "${dir}/t2s_encoder.onnx"
-            val decoderPath ="${dir}/t2s_fsdec.onnx"
-            val postnetPath = "${dir}/t2s_sdec.opt3.onnx"
-            val waveglowPath = "${dir}/vits.onnx"
-            val sslPath = "${dir}/cnhubert.onnx"
-
-            voice?.openModelFile(encoder = encoderPath, decoder1 = decoderPath, decoder2 = postnetPath, wave = waveglowPath, ssl = sslPath,
-                          modelType = AILIA_VOICE_MODEL_TYPE_GPT_SOVITS,
-                          cleanerType = AILIA_VOICE_CLEANER_TYPE_BASIC)
+            when (modelType) {
+                VoiceModelType.GPT_SOVITS_V1 -> {
+                    voice?.openGPTSoVITSV1ModelFile(
+                        encoder = "${dir}/t2s_encoder.onnx",
+                        decoder1 = "${dir}/t2s_fsdec.onnx",
+                        decoder2 = "${dir}/t2s_sdec.opt3.onnx",
+                        wave = "${dir}/vits.onnx",
+                        ssl = "${dir}/cnhubert.onnx"
+                    )
+                }
+                VoiceModelType.GPT_SOVITS_V2 -> {
+                    val v2 = "${dir}/gpt-sovits-v2"
+                    voice?.openGPTSoVITSV2ModelFile(
+                        encoder = "${v2}/t2s_encoder.onnx",
+                        decoder1 = "${v2}/t2s_fsdec.onnx",
+                        decoder2 = "${v2}/t2s_sdec.opt.onnx",
+                        wave = "${v2}/vits.onnx",
+                        ssl = "${v2}/cnhubert.onnx",
+                        chineseBert = "${v2}/chinese-roberta.onnx",
+                        vocab = "${v2}/vocab.txt"
+                    )
+                }
+                VoiceModelType.GPT_SOVITS_V3 -> {
+                    val v3 = "${dir}/gpt-sovits-v3"
+                    voice?.openGPTSoVITSV3ModelFile(
+                        encoder = "${v3}/t2s_encoder.onnx",
+                        decoder1 = "${v3}/t2s_fsdec.onnx",
+                        decoder2 = "${v3}/t2s_sdec.opt.onnx",
+                        ssl = "${v3}/cnhubert.onnx",
+                        vq = "${v3}/vq_model.onnx",
+                        cfm = "${v3}/vq_cfm.onnx",
+                        bigvgan = "${v3}/bigvgan_model.onnx",
+                        chineseBert = "${v3}/chinese-roberta.onnx",
+                        vocab = "${v3}/vocab.txt"
+                    )
+                    voice?.setSampleSteps(4)
+                }
+                VoiceModelType.GPT_SOVITS_V2_PRO -> {
+                    val v2pro = "${dir}/gpt-sovits-v2-pro"
+                    voice?.openGPTSoVITSV2ProModelFile(
+                        encoder = "${v2pro}/t2s_encoder.onnx",
+                        decoder1 = "${v2pro}/t2s_fsdec.onnx",
+                        decoder2 = "${v2pro}/t2s_sdec.opt.onnx",
+                        ssl = "${v2pro}/cnhubert.onnx",
+                        vits = "${v2pro}/vits.onnx",
+                        sv = "${v2pro}/sv.onnx",
+                        chineseBert = "${v2pro}/chinese-roberta.onnx",
+                        vocab = "${v2pro}/vocab.txt"
+                    )
+                }
+            }
 
             isInitialized = true
-            Log.i(AiliaVoiceSample.Companion.TAG, "Voice initialized successfully")
+            Log.i(TAG, "Voice initialized successfully with $modelType")
             true
         } catch (e: Exception) {
-            Log.e(AiliaVoiceSample.Companion.TAG, "Failed to initialize voice: ${e.javaClass.name}: ${e.message}")
+            Log.e(TAG, "Failed to initialize voice: ${e.javaClass.name}: ${e.message}")
             releaseVoice()
             false
         }
@@ -208,50 +258,48 @@ class AiliaVoiceSample {
         try {
             voice?.close()
         } catch (e: Exception) {
-            Log.e(AiliaVoiceSample.Companion.TAG, "Error releasing voice: ${e.javaClass.name}: ${e.message}")
+            Log.e(TAG, "Error releasing voice: ${e.javaClass.name}: ${e.message}")
         } finally {
             voice = null
             isInitialized = false
-            Log.i(AiliaVoiceSample.Companion.TAG, "Voice released")
+            Log.i(TAG, "Voice released")
         }
     }
 
-    fun textToSpeech(audio: FloatArray, channels: Int, sampleRate: Int, refText: String, refLang: String, text: String, textLang: String) : Long{
-        Log.d(AiliaVoiceSample.Companion.TAG, "Starting ailia Voice JNI sample")
+    private fun g2pTypeForLang(lang: String): Int {
+        return when (lang) {
+            "en" -> AILIA_VOICE_G2P_TYPE_GPT_SOVITS_EN
+            "zh" -> AILIA_VOICE_G2P_TYPE_GPT_SOVITS_ZH
+            else -> AILIA_VOICE_G2P_TYPE_GPT_SOVITS_JA
+        }
+    }
 
-        if (voice == null){
+    fun textToSpeech(audio: FloatArray, channels: Int, sampleRate: Int, refText: String, refLang: String, text: String, textLang: String) : Long {
+        Log.d(TAG, "Starting ailia Voice JNI sample ($modelType)")
+
+        if (voice == null) {
             return -1
         }
 
         try {
-            var refG2pText : String = ""
-            if (refLang == "en") {
-                refG2pText = voice?.g2p(refText, AILIA_VOICE_G2P_TYPE_GPT_SOVITS_EN)!!
-            } else {
-                refG2pText = voice?.g2p(refText, AILIA_VOICE_G2P_TYPE_GPT_SOVITS_JA)!!
-            }
-            Log.d(AiliaVoiceSample.Companion.TAG, "Ref text: $refText")
-            Log.d(AiliaVoiceSample.Companion.TAG, "Ref Features: $refG2pText")
+            val refG2pText = voice?.g2p(refText, g2pTypeForLang(refLang))!!
+            Log.d(TAG, "Ref text: $refText")
+            Log.d(TAG, "Ref Features: $refG2pText")
             voice?.setReferenceAudio(audio, audio.size * 4, channels, sampleRate, refG2pText)
 
-            var g2pText : String = ""
-            if (textLang == "en"){
-                g2pText = voice?.g2p(text, AILIA_VOICE_G2P_TYPE_GPT_SOVITS_EN)!!
-            }else {
-                g2pText = voice?.g2p(text, AILIA_VOICE_G2P_TYPE_GPT_SOVITS_JA)!!
-            }
-            Log.d(AiliaVoiceSample.Companion.TAG, "Text: $text")
-            Log.d(AiliaVoiceSample.Companion.TAG, "Features: $g2pText")
+            val g2pText = voice?.g2p(text, g2pTypeForLang(textLang))!!
+            Log.d(TAG, "Text: $text")
+            Log.d(TAG, "Features: $g2pText")
 
-            Log.d(AiliaVoiceSample.Companion.TAG, "Inference run")
+            Log.d(TAG, "Inference run")
             val startTime = System.nanoTime()
-            val inferenceResult : AiliaVoice.AudioData = voice?.synthesizeVoice(g2pText)!!
+            val inferenceResult: AiliaVoice.AudioData = voice?.synthesizeVoice(g2pText)!!
             val endTime = System.nanoTime()
-            Log.d(AiliaVoiceSample.Companion.TAG, "Inference result samples ${inferenceResult.data.size} channels ${inferenceResult.channels} sampleRate ${inferenceResult.samplingRate}")
+            Log.d(TAG, "Inference result samples ${inferenceResult.data.size} channels ${inferenceResult.channels} sampleRate ${inferenceResult.samplingRate}")
             playAudio(inferenceResult.data, inferenceResult.channels, inferenceResult.samplingRate)
             return (endTime - startTime) / 1000000
         } catch (e: Exception) {
-            Log.e(AiliaVoiceSample.Companion.TAG, "Exception during sample execution", e)
+            Log.e(TAG, "Exception during sample execution", e)
         }
         return 0
     }
@@ -288,17 +336,17 @@ class AiliaVoiceSample {
                         .setChannelMask(channelConfig)
                         .build()
                 )
-                .setTransferMode(AudioTrack.MODE_STATIC) // 全サンプルを一度に渡すなら
+                .setTransferMode(AudioTrack.MODE_STATIC)
                 .setBufferSizeInBytes(bufferSize)
                 .build()
 
             val written = audioTrack.write(pcm16, 0, pcm16.size)
-            Log.d(AiliaVoiceSample.Companion.TAG, "Wrote $written samples")
+            Log.d(TAG, "Wrote $written samples")
             audioTrack.setVolume(1.0f)
             audioTrack.setNotificationMarkerPosition(pcm16.size)
             audioTrack.setPlaybackPositionUpdateListener(object : AudioTrack.OnPlaybackPositionUpdateListener {
                 override fun onMarkerReached(track: AudioTrack?) {
-                    Log.d(AiliaVoiceSample.Companion.TAG, "Track Finish")
+                    Log.d(TAG, "Track Finish")
                     track?.stop()
                     track?.release()
                 }
@@ -307,8 +355,7 @@ class AiliaVoiceSample {
             })
             audioTrack.play()
         } catch (e: Exception) {
-            Log.e(AiliaVoiceSample.Companion.TAG, "Failed to play wave: ${e.message}", e)
+            Log.e(TAG, "Failed to play wave: ${e.message}", e)
         }
     }
-
 }
