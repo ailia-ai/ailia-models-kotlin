@@ -29,6 +29,7 @@ class AiliaMultimodalLLMSample {
 
     interface MultimodalLLMListener {
         fun onDownloadProgress(fileName: String, bytesDownloaded: Long, totalBytes: Long)
+        fun onStatus(status: String)
         fun onToken(token: String)
         fun onComplete(fullResponse: String)
         fun onError(error: String)
@@ -182,12 +183,14 @@ class AiliaMultimodalLLMSample {
             val userMessage = AiliaLLMMultimodalChatMessage("user", messageContent, mediaData)
             conversationHistory.add(userMessage)
 
-            // Set the multimodal prompt
+            // Set the multimodal prompt (image processing - takes several minutes on mobile)
             Log.i(TAG, "chatWithImage: calling setPrompt with ${conversationHistory.size} messages...")
+            listener?.onStatus("Processing image...")
             val promptStart = System.nanoTime()
             llm!!.setPrompt(conversationHistory.toTypedArray())
             val promptTime = (System.nanoTime() - promptStart) / 1000000
             Log.i(TAG, "chatWithImage: setPrompt completed in ${promptTime}ms")
+            listener?.onStatus("Generating... (image processed in ${promptTime / 1000}s)")
 
             // Generate response token by token
             val responseBuilder = StringBuilder()

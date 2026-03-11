@@ -1176,6 +1176,7 @@ class MainActivity : AppCompatActivity() {
                                     llmStatusTextView.text = "Status: Downloading $fileName... $percent%"
                                 }
                             }
+                            override fun onStatus(status: String) {}
                             override fun onToken(token: String) {}
                             override fun onComplete(fullResponse: String) {}
                             override fun onError(error: String) {
@@ -1284,6 +1285,11 @@ class MainActivity : AppCompatActivity() {
                 Log.i("AILIA_Main", "MultimodalLLM Send: cameraExecutor task started, calling chatWithImage...")
                 val processingTime = multimodalLLMSample.chatWithImage(imagePath, userInput, object : AiliaMultimodalLLMSample.MultimodalLLMListener {
                     override fun onDownloadProgress(fileName: String, bytesDownloaded: Long, totalBytes: Long) {}
+                    override fun onStatus(status: String) {
+                        runOnUiThread {
+                            llmStatusTextView.text = "Status: $status"
+                        }
+                    }
                     override fun onToken(token: String) {
                         runOnUiThread {
                             llmOutputTextView.append(token)
