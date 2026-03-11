@@ -248,11 +248,17 @@ class MainActivity : AppCompatActivity() {
                     val newEnvId = ailiaEnvironments!![position].id
                     if (newEnvId != selectedEnvId) {
                         selectedEnvId = newEnvId
-                        if (isInitialized) {
+                        isInitialized = false
+                        isDownloadingModel.set(false)
+                        val isImageMode = modeRadioGroup.checkedRadioButtonId == R.id.imageRadioButton
+                        if (isImageMode) {
                             releaseCurrentAlgorithm()
-                            isInitialized = false
-                            isDownloadingModel.set(false)
                             processImageMode()
+                        } else {
+                            // Camera mode: cameraExecutorでリリース→再初期化
+                            cameraExecutor.execute {
+                                releaseCurrentAlgorithm()
+                            }
                         }
                     }
                 }
@@ -298,11 +304,16 @@ class MainActivity : AppCompatActivity() {
                             val newEnvId = tfliteEnvIds[position]
                             if (newEnvId != selectedEnvId) {
                                 selectedEnvId = newEnvId
-                                if (isInitialized) {
+                                isInitialized = false
+                                isDownloadingModel.set(false)
+                                val isImageMode = modeRadioGroup.checkedRadioButtonId == R.id.imageRadioButton
+                                if (isImageMode) {
                                     releaseCurrentAlgorithm()
-                                    isInitialized = false
-                                    isDownloadingModel.set(false)
                                     processImageMode()
+                                } else {
+                                    cameraExecutor.execute {
+                                        releaseCurrentAlgorithm()
+                                    }
                                 }
                             }
                         }
@@ -338,12 +349,16 @@ class MainActivity : AppCompatActivity() {
                         if (newRuntime != selectedRuntime) {
                             selectedRuntime = newRuntime
                             updateEnvSpinner(algorithm)
-                            // Runtime変更時に再初期化
-                            if (isInitialized) {
+                            isInitialized = false
+                            isDownloadingModel.set(false)
+                            val isImageMode = modeRadioGroup.checkedRadioButtonId == R.id.imageRadioButton
+                            if (isImageMode) {
                                 releaseCurrentAlgorithm()
-                                isInitialized = false
-                                isDownloadingModel.set(false)
                                 processImageMode()
+                            } else {
+                                cameraExecutor.execute {
+                                    releaseCurrentAlgorithm()
+                                }
                             }
                         }
                     }
