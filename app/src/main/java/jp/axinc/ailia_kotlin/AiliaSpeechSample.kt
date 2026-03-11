@@ -65,6 +65,8 @@ class AiliaSpeechSample {
 
     companion object {
         private const val TAG = "AILIA_Main"
+        private const val VAD_URL = "https://storage.googleapis.com/ailia-models/silero-vad/silero_vad_v6_2.onnx"
+        private const val VAD_FILE = "silero_vad_v6_2.onnx"
         private const val DIARIZATION_SEGMENTATION_URL = "https://storage.googleapis.com/ailia-models/pyannote-audio/segmentation.onnx"
         private const val DIARIZATION_EMBEDDING_URL = "https://storage.googleapis.com/ailia-models/pyannote-audio/speaker-embedding.onnx"
         private const val DIARIZATION_SEGMENTATION_FILE = "segmentation.onnx"
@@ -117,6 +119,7 @@ class AiliaSpeechSample {
 
     /**
      * Downloads model files for the specified (or current) speech model type.
+     * Always downloads Silero VAD model for all modes.
      * If diarizationEnabled is true, also downloads pyannote-audio segmentation and embedding models.
      */
     fun downloadModel(modelType: SpeechModelType = currentModelType, listener: DownloadListener? = null): Boolean {
@@ -135,6 +138,9 @@ class AiliaSpeechSample {
                     listener
                 )
             }
+            // Always download VAD model
+            Log.i(TAG, "Downloading VAD model...")
+            downloadFile(VAD_URL, VAD_FILE, listener)
             if (diarizationEnabled) {
                 Log.i(TAG, "Downloading diarization models...")
                 downloadFile(DIARIZATION_SEGMENTATION_URL, DIARIZATION_SEGMENTATION_FILE, listener)
@@ -170,9 +176,12 @@ class AiliaSpeechSample {
                 ""
             }
 
-            val flags = if (liveMode) AiliaSpeech.AILIA_SPEECH_FLAG_LIVE else AiliaSpeech.AILIA_SPEECH_FLAG_NONE
+            // When diarization is enabled, disable LIVE flag (diarization requires non-live mode)
+            // Streaming still works without the LIVE flag
+            val useLiveFlag = liveMode && !diarizationEnabled
+            val flags = if (useLiveFlag) AiliaSpeech.AILIA_SPEECH_FLAG_LIVE else AiliaSpeech.AILIA_SPEECH_FLAG_NONE
 
-            Log.i(TAG, "Initializing speech with envId=$envId, model=${currentModelType.displayName}, liveMode=$liveMode")
+            Log.i(TAG, "Initializing speech with envId=$envId, model=${currentModelType.displayName}, liveMode=$liveMode, diarization=$diarizationEnabled, useLiveFlag=$useLiveFlag")
             Log.i(TAG, "Encoder: $encoderPath")
             Log.i(TAG, "Decoder: $decoderPath")
 
@@ -183,8 +192,14 @@ class AiliaSpeechSample {
             )
             speech?.openModel(encoderPath, decoderPath, currentModelType.modelTypeId)
 
-            // Open diarization if enabled and not in live mode
-            if (diarizationEnabled && !liveMode) {
+            // Always open VAD (Silero VAD)
+            val vadPath = "$dir/$VAD_FILE"
+            Log.i(TAG, "Opening VAD: $vadPath")
+            val vadResult = speech?.openVad(vadPath, AiliaSpeech.AILIA_SPEECH_VAD_TYPE_SILERO)
+            Log.i(TAG, "VAD openVad result=$vadResult")
+
+            // Open diarization if enabled
+            if (diarizationEnabled) {
                 val segmentationPath = "$dir/$DIARIZATION_SEGMENTATION_FILE"
                 val embeddingPath = "$dir/$DIARIZATION_EMBEDDING_FILE"
                 Log.i(TAG, "Opening diarization: segmentation=$segmentationPath, embedding=$embeddingPath")

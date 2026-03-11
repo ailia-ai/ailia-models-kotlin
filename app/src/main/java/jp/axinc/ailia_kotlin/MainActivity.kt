@@ -655,8 +655,7 @@ class MainActivity : AppCompatActivity() {
                 speechModelLabel.visibility = View.VISIBLE
                 speechModelSpinner.visibility = View.VISIBLE
                 speechModeRadioGroup.visibility = View.VISIBLE
-                // Diarization is not supported in live (mic) mode
-                diarizationCheckBox.visibility = if (isMicMode) View.GONE else View.VISIBLE
+                diarizationCheckBox.visibility = View.VISIBLE
                 micRecordButton.visibility = if (isMicMode) View.VISIBLE else View.GONE
             }
             AlgorithmType.LLM -> {
@@ -1514,7 +1513,6 @@ class MainActivity : AppCompatActivity() {
             when (checkedId) {
                 R.id.wavRadioButton -> {
                     micRecordButton.visibility = View.GONE
-                    diarizationCheckBox.visibility = View.VISIBLE
                     stopMicRecording()
                     // Re-initialize in non-live mode
                     speechSample.releaseSpeech()
@@ -1525,10 +1523,6 @@ class MainActivity : AppCompatActivity() {
                 }
                 R.id.micRadioButton -> {
                     micRecordButton.visibility = View.VISIBLE
-                    // Diarization is not supported in live mode
-                    diarizationCheckBox.visibility = View.GONE
-                    diarizationCheckBox.isChecked = false
-                    speechSample.diarizationEnabled = false
                     // Re-initialize in live mode
                     speechSample.releaseSpeech()
                     isInitialized = false
