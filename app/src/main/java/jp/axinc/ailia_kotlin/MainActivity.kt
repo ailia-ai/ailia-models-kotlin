@@ -115,6 +115,12 @@ class MainActivity : AppCompatActivity() {
         // (SpinnerのonItemSelectedでinitializeAilia()が呼ばれるため)
         cameraExecutor = Executors.newSingleThreadExecutor()
 
+        val modelDir = (getExternalFilesDir(null) ?: filesDir).absolutePath
+        onnxObjectDetectionSample.modelDir = modelDir
+        onnxClassificationSample.modelDir = modelDir
+        speechSample.modelDir = modelDir
+        voiceSample.modelDir = modelDir
+
         initializeViews()
         setupModeSelection()
         updateUIVisibility()
@@ -204,102 +210,76 @@ class MainActivity : AppCompatActivity() {
         switchToImageMode()
     }
 
+    private fun setupOnnxEnvSpinner(useBlas: Boolean) {
+        try {
+            if (ailiaEnvironments == null) {
+                Ailia.SetTemporaryCachePath(cacheDir.absolutePath)
+                ailiaEnvironments = AiliaModel.getEnvironments()
+            }
+            val envNames = ailiaEnvironments!!.map { "${it.name} (id:${it.id})" }.toTypedArray()
+            val adapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, envNames)
+            adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+            envSpinner.adapter = adapter
+
+            var defaultIndex = 0
+            if (useBlas) {
+                // デフォルトはBLAS (CPU-OpenBlas)
+                for ((index, env) in ailiaEnvironments!!.withIndex()) {
+                    if (env.name.contains("OpenBlas", ignoreCase = true)) {
+                        defaultIndex = index
+                        break
+                    }
+                }
+            } else {
+                // デフォルトはGPU
+                for ((index, env) in ailiaEnvironments!!.withIndex()) {
+                    if (env.type == AiliaEnvironment.TYPE_GPU && env.props and AiliaEnvironment.PROPERTY_FP16 == 0) {
+                        defaultIndex = index
+                        break
+                    }
+                }
+            }
+            envSpinner.setSelection(defaultIndex)
+            selectedEnvId = ailiaEnvironments!![defaultIndex].id
+
+            envSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+                override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
+                    val newEnvId = ailiaEnvironments!![position].id
+                    if (newEnvId != selectedEnvId) {
+                        selectedEnvId = newEnvId
+                        if (isInitialized) {
+                            releaseCurrentAlgorithm()
+                            isInitialized = false
+                            isDownloadingModel.set(false)
+                            processImageMode()
+                        }
+                    }
+                }
+                override fun onNothingSelected(parent: AdapterView<*>?) {}
+            }
+
+            envLabel.visibility = View.VISIBLE
+            envSpinner.visibility = View.VISIBLE
+        } catch (e: Exception) {
+            Log.e("AILIA_Main", "Failed to get ailia environments: ${e.message}")
+            envLabel.visibility = View.GONE
+            envSpinner.visibility = View.GONE
+        }
+    }
+
     private fun updateEnvSpinner(algorithm: AlgorithmType) {
         when (algorithm) {
             AlgorithmType.POSE_ESTIMATION -> {
-                // ailia SDK: 利用可能な環境リストを表示
-                try {
-                    if (ailiaEnvironments == null) {
-                        Ailia.SetTemporaryCachePath(cacheDir.absolutePath)
-                        ailiaEnvironments = AiliaModel.getEnvironments()
-                    }
-                    val envNames = ailiaEnvironments!!.map { "${it.name} (id:${it.id})" }.toTypedArray()
-                    val adapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, envNames)
-                    adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
-                    envSpinner.adapter = adapter
+                setupOnnxEnvSpinner(useBlas = false)
+            }
 
-                    // GPUをデフォルト選択
-                    var defaultIndex = 0
-                    for ((index, env) in ailiaEnvironments!!.withIndex()) {
-                        if (env.type == AiliaEnvironment.TYPE_GPU && env.props and AiliaEnvironment.PROPERTY_FP16 == 0) {
-                            defaultIndex = index
-                            break
-                        }
-                    }
-                    envSpinner.setSelection(defaultIndex)
-                    selectedEnvId = ailiaEnvironments!![defaultIndex].id
-
-                    envSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
-                        override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
-                            val newEnvId = ailiaEnvironments!![position].id
-                            if (newEnvId != selectedEnvId) {
-                                selectedEnvId = newEnvId
-                                if (isInitialized) {
-                                    releaseCurrentAlgorithm()
-                                    isInitialized = false
-                                    isDownloadingModel.set(false)
-                                    processImageMode()
-                                }
-                            }
-                        }
-                        override fun onNothingSelected(parent: AdapterView<*>?) {}
-                    }
-
-                    envLabel.visibility = View.VISIBLE
-                    envSpinner.visibility = View.VISIBLE
-                } catch (e: Exception) {
-                    Log.e("AILIA_Main", "Failed to get ailia environments: ${e.message}")
-                    envLabel.visibility = View.GONE
-                    envSpinner.visibility = View.GONE
-                }
+            AlgorithmType.SPEECH_TO_TEXT, AlgorithmType.TEXT_TO_SPEECH -> {
+                setupOnnxEnvSpinner(useBlas = true)
             }
 
             AlgorithmType.OBJECT_DETECTION, AlgorithmType.CLASSIFICATION, AlgorithmType.TRACKING -> {
                 if (selectedRuntime == "ONNX") {
-                    // ailia SDK: 利用可能な環境リストを表示
-                    try {
-                        if (ailiaEnvironments == null) {
-                            Ailia.SetTemporaryCachePath(cacheDir.absolutePath)
-                            ailiaEnvironments = AiliaModel.getEnvironments()
-                        }
-                        val envNames = ailiaEnvironments!!.map { "${it.name} (id:${it.id})" }.toTypedArray()
-                        val adapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, envNames)
-                        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
-                        envSpinner.adapter = adapter
-
-                        var defaultIndex = 0
-                        for ((index, env) in ailiaEnvironments!!.withIndex()) {
-                            if (env.type == AiliaEnvironment.TYPE_GPU && env.props and AiliaEnvironment.PROPERTY_FP16 == 0) {
-                                defaultIndex = index
-                                break
-                            }
-                        }
-                        envSpinner.setSelection(defaultIndex)
-                        selectedEnvId = ailiaEnvironments!![defaultIndex].id
-
-                        envSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
-                            override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
-                                val newEnvId = ailiaEnvironments!![position].id
-                                if (newEnvId != selectedEnvId) {
-                                    selectedEnvId = newEnvId
-                                    if (isInitialized) {
-                                        releaseCurrentAlgorithm()
-                                        isInitialized = false
-                                        isDownloadingModel.set(false)
-                                        processImageMode()
-                                    }
-                                }
-                            }
-                            override fun onNothingSelected(parent: AdapterView<*>?) {}
-                        }
-
-                        envLabel.visibility = View.VISIBLE
-                        envSpinner.visibility = View.VISIBLE
-                    } catch (e: Exception) {
-                        Log.e("AILIA_Main", "Failed to get ailia environments: ${e.message}")
-                        envLabel.visibility = View.GONE
-                        envSpinner.visibility = View.GONE
-                    }
+                    setupOnnxEnvSpinner(useBlas = true)
                 } else {
                     // TFLite: Reference (CPU) と NNAPI を表示
                     val tfliteEnvNames = arrayOf("Reference (CPU)", "NNAPI")
@@ -487,13 +467,15 @@ class MainActivity : AppCompatActivity() {
             }
 
             AlgorithmType.SPEECH_TO_TEXT -> {
-                var audio: AudioUtil.WavFileData = AudioUtil().loadRawAudio(this.resources.openRawResource(R.raw.demo))
-                var text: String =
+                val audio: AudioUtil.WavFileData = AudioUtil().loadRawAudio(this.resources.openRawResource(R.raw.demo))
+                val startTime = System.nanoTime()
+                val text: String =
                     speechSample.process(audio.audioData, audio.channels, audio.sampleRate)
+                val endTime = System.nanoTime()
                 runOnUiThread {
-                    classificationResultTextView.text = "Speech Results: $text"
+                    classificationResultTextView.text = "Speech Results:\n$text"
                 }
-                0
+                (endTime - startTime) / 1000000
             }
 
             AlgorithmType.TEXT_TO_SPEECH -> {
@@ -1028,7 +1010,56 @@ class MainActivity : AppCompatActivity() {
                 }
 
                 AlgorithmType.SPEECH_TO_TEXT -> {
-                    isInitialized = speechSample.initializeSpeech()
+                    if (isDownloadingModel.get()) return
+                    isDownloadingModel.set(true)
+                    runOnUiThread {
+                        processingTimeTextView.text = "Downloading speech model..."
+                    }
+                    Log.i("AILIA_Main", "Speech: submitting download task to cameraExecutor")
+                    cameraExecutor.execute {
+                        Log.i("AILIA_Main", "Speech: cameraExecutor task started")
+                        try {
+                            val downloaded = speechSample.downloadModel(object : AiliaSpeechSample.DownloadListener {
+                                override fun onProgress(fileName: String, bytesDownloaded: Long, totalBytes: Long) {
+                                    val percent = if (totalBytes > 0) (bytesDownloaded * 100 / totalBytes) else 0
+                                    runOnUiThread {
+                                        processingTimeTextView.text = "Downloading $fileName... $percent%"
+                                    }
+                                }
+                                override fun onComplete() {}
+                                override fun onError(error: String) {
+                                    runOnUiThread {
+                                        processingTimeTextView.text = "Download error: $error"
+                                    }
+                                }
+                            })
+                            Log.i("AILIA_Main", "Speech: download result=$downloaded")
+                            if (downloaded) {
+                                Log.i("AILIA_Main", "Speech: initializing with envId=$selectedEnvId")
+                                val success = speechSample.initializeSpeech(selectedEnvId)
+                                Log.i("AILIA_Main", "Speech: initialization result=$success")
+                                isInitialized = success
+                                isDownloadingModel.set(false)
+                                runOnUiThread {
+                                    if (success) {
+                                        processingTimeTextView.text = "Speech model ready"
+                                        processImageMode()
+                                    } else {
+                                        processingTimeTextView.text = "Failed to initialize speech model"
+                                    }
+                                }
+                            } else {
+                                isDownloadingModel.set(false)
+                            }
+                        } catch (e: Exception) {
+                            Log.e("AILIA_Main", "Speech: exception in cameraExecutor", e)
+                            isDownloadingModel.set(false)
+                            runOnUiThread {
+                                processingTimeTextView.text = "Error: ${e.message}"
+                            }
+                        }
+                    }
+                    return
                 }
 
                 AlgorithmType.TEXT_TO_SPEECH -> {
@@ -1038,7 +1069,7 @@ class MainActivity : AppCompatActivity() {
                     }
                     voiceSample.modelType = selectedVoiceModelType
                     cameraExecutor.execute {
-                        val success = voiceSample.initializeVoice(object : AiliaVoiceSample.DownloadListener {
+                        val success = voiceSample.initializeVoice(envId = selectedEnvId, listener = object : AiliaVoiceSample.DownloadListener {
                             override fun onProgress(fileName: String, bytesDownloaded: Long, totalBytes: Long) {
                                 val percent = if (totalBytes > 0) (bytesDownloaded * 100 / totalBytes) else 0
                                 runOnUiThread {
@@ -1315,10 +1346,11 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun processImageMode() {
-        // ONNX モードは非同期モデルダウンロードが必要
-        if (selectedRuntime == "ONNX" && (currentAlgorithm == AlgorithmType.OBJECT_DETECTION ||
+        // 非同期モデルダウンロードが必要なモード
+        if ((selectedRuntime == "ONNX" && (currentAlgorithm == AlgorithmType.OBJECT_DETECTION ||
                     currentAlgorithm == AlgorithmType.CLASSIFICATION ||
-                    currentAlgorithm == AlgorithmType.TRACKING)) {
+                    currentAlgorithm == AlgorithmType.TRACKING)) ||
+            currentAlgorithm == AlgorithmType.SPEECH_TO_TEXT) {
             if (!isInitialized) {
                 initializeAilia()
                 return

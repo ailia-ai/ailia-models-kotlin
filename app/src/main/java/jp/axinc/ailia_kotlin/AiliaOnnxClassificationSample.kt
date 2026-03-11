@@ -1,7 +1,6 @@
 package jp.axinc.ailia_kotlin
 
 import android.graphics.Bitmap
-import android.os.Environment
 import android.util.Log
 import axip.ailia.*
 import java.io.File
@@ -28,13 +27,10 @@ class AiliaOnnxClassificationSample {
     private var classifier: AiliaClassifierModel? = null
     private var isInitialized = false
     private var lastClassificationResult: String = ""
-
-    private fun modelDirectory(): String {
-        return Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS).absolutePath
-    }
+    var modelDir: String = ""
 
     private fun downloadFile(urlStr: String, fileName: String, listener: DownloadListener? = null): Boolean {
-        val dir = modelDirectory()
+        val dir = modelDir
         val path = "$dir/$fileName"
         val file = File(path)
         if (file.exists()) {
@@ -91,7 +87,7 @@ class AiliaOnnxClassificationSample {
         }
 
         return try {
-            val dir = modelDirectory()
+            val dir = modelDir
             val protoPath = "$dir/$PROTO_FILE"
             val modelPath = "$dir/$MODEL_FILE"
 
