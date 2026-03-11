@@ -545,8 +545,8 @@ class MainActivity : AppCompatActivity() {
                     imageView.visibility = View.VISIBLE
                     cameraPreviewView.visibility = View.VISIBLE
                 }
-                resultScrollView.visibility = View.VISIBLE
-                classificationResultTextView.visibility = View.VISIBLE
+                resultScrollView.visibility = View.GONE
+                classificationResultTextView.visibility = View.GONE
                 tokenizerInputEditText.visibility = View.GONE
                 tokenizerOutputTextView.visibility = View.GONE
                 trackingResultTextView.visibility = View.GONE
@@ -574,11 +574,11 @@ class MainActivity : AppCompatActivity() {
                     imageView.visibility = View.VISIBLE
                     cameraPreviewView.visibility = View.VISIBLE
                 }
-                resultScrollView.visibility = View.VISIBLE
+                resultScrollView.visibility = View.GONE
                 classificationResultTextView.visibility = View.GONE
                 tokenizerInputEditText.visibility = View.GONE
                 tokenizerOutputTextView.visibility = View.GONE
-                trackingResultTextView.visibility = View.VISIBLE
+                trackingResultTextView.visibility = View.GONE
                 findViewById<TextView>(R.id.tokenizerInputLabel).visibility = View.GONE
                 findViewById<TextView>(R.id.tokenizerOutputLabel).visibility = View.GONE
                 multimodalImageView.visibility = View.GONE
@@ -1369,8 +1369,18 @@ class MainActivity : AppCompatActivity() {
                 if (currentAlgorithm != AlgorithmType.TOKENIZE) {
                     imageView.setImageBitmap(bitmap)
                 }
-                processingTimeTextView.text =
-                    "Processing Time: ${processingTime}ms (${currentAlgorithm.name})"
+                var timeText = "Processing Time: ${processingTime}ms (${currentAlgorithm.name})"
+                when (currentAlgorithm) {
+                    AlgorithmType.CLASSIFICATION -> {
+                        val result = if (selectedRuntime == "ONNX") onnxClassificationSample.getLastClassificationResult() else classificationSample.getLastClassificationResult()
+                        timeText += "\n$result"
+                    }
+                    AlgorithmType.TRACKING -> {
+                        timeText += "\n${trackerSample.getLastTrackingResult()}"
+                    }
+                    else -> {}
+                }
+                processingTimeTextView.text = timeText
             }
 
         } catch (e: Exception) {
@@ -1505,8 +1515,18 @@ class MainActivity : AppCompatActivity() {
                     }
 
                     val fps = if (processingTime > 0) 1000 / processingTime else 0
-                    processingTimeTextView.text =
-                        "Processing Time: ${processingTime}ms (${currentAlgorithm.name}) - FPS: $fps"
+                    var timeText = "Processing Time: ${processingTime}ms (${currentAlgorithm.name}) - FPS: $fps"
+                    when (currentAlgorithm) {
+                        AlgorithmType.CLASSIFICATION -> {
+                            val result = if (selectedRuntime == "ONNX") onnxClassificationSample.getLastClassificationResult() else classificationSample.getLastClassificationResult()
+                            timeText += "\n$result"
+                        }
+                        AlgorithmType.TRACKING -> {
+                            timeText += "\n${trackerSample.getLastTrackingResult()}"
+                        }
+                        else -> {}
+                    }
+                    processingTimeTextView.text = timeText
                 }
 
             } catch (e: Exception) {
