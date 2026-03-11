@@ -17,7 +17,7 @@ dependencyResolutionManagement {
         mavenCentral()
     }
 }
-rootProject.name = "ailia-kotlin"
+rootProject.name = "ailia-models-kotlin"
 include ':app'
 include ':ailia-sdk-jni'
 include ':ailia-tokenizer-jni'
