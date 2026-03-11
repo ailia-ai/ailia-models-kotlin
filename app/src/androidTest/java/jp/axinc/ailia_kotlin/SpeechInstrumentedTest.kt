@@ -176,6 +176,65 @@ class SpeechInstrumentedTest {
     }
 
     @Test
+    fun testDiarization_whisperTiny_downloadAndInit() {
+        Log.i(TAG, "=== Testing diarization download and init with Whisper Tiny ===")
+
+        speechSample.diarizationEnabled = true
+        val downloaded = speechSample.downloadModel(SpeechModelType.WHISPER_TINY, object : AiliaSpeechSample.DownloadListener {
+            override fun onProgress(fileName: String, bytesDownloaded: Long, totalBytes: Long) {
+                val percent = if (totalBytes > 0) (bytesDownloaded * 100 / totalBytes) else 0
+                Log.i(TAG, "Downloading $fileName: $percent%")
+            }
+            override fun onComplete() {
+                Log.i(TAG, "Diarization model download complete")
+            }
+            override fun onError(error: String) {
+                Log.e(TAG, "Diarization model download error: $error")
+            }
+        })
+        assertTrue("Download with diarization should succeed", downloaded)
+
+        // Verify diarization model files exist
+        val segFile = File("$modelDir/segmentation.onnx")
+        assertTrue("Segmentation file should exist", segFile.exists())
+        assertTrue("Segmentation file should have non-zero size", segFile.length() > 0)
+
+        val embFile = File("$modelDir/speaker-embedding.onnx")
+        assertTrue("Embedding file should exist", embFile.exists())
+        assertTrue("Embedding file should have non-zero size", embFile.length() > 0)
+
+        // Initialize with diarization
+        val initialized = speechSample.initializeSpeech()
+        assertTrue("Init with diarization should succeed", initialized)
+
+        speechSample.releaseSpeech()
+        speechSample.diarizationEnabled = false
+    }
+
+    @Test
+    fun testDiarization_whisperTiny_inference() {
+        Log.i(TAG, "=== Testing diarization inference with Whisper Tiny ===")
+
+        speechSample.diarizationEnabled = true
+        val downloaded = speechSample.downloadModel(SpeechModelType.WHISPER_TINY)
+        assertTrue("Download should succeed", downloaded)
+        val initialized = speechSample.initializeSpeech()
+        assertTrue("Init should succeed", initialized)
+
+        val audio = loadDemoAudio()
+        val startTime = System.nanoTime()
+        val result = speechSample.process(audio.audioData, audio.channels, audio.sampleRate)
+        val elapsed = (System.nanoTime() - startTime) / 1000000
+        Log.i(TAG, "Diarization inference completed in ${elapsed}ms")
+        Log.i(TAG, "Result: '$result'")
+
+        assertTrue("Diarization result should not be empty", result.isNotEmpty())
+
+        speechSample.releaseSpeech()
+        speechSample.diarizationEnabled = false
+    }
+
+    @Test
     fun testLiveMode_whisperTiny() {
         Log.i(TAG, "=== Testing live mode: Whisper Tiny ===")
 

@@ -218,6 +218,15 @@
 
             </RadioGroup>
 
+            <CheckBox
+                android:id="@+id/diarizationCheckBox"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="8dp"
+                android:text="Speaker Diarization (pyannote-audio)"
+                android:textColor="?android:attr/textColorPrimary"
+                android:visibility="gone" />
+
             <Button
                 android:id="@+id/micRecordButton"
                 android:layout_width="wrap_content"

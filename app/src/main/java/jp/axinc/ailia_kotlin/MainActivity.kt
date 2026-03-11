@@ -60,6 +60,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var speechModelLabel: TextView
     private lateinit var speechModelSpinner: Spinner
     private lateinit var speechModeRadioGroup: RadioGroup
+    private lateinit var diarizationCheckBox: CheckBox
     private lateinit var micRecordButton: Button
 
     private var poseEstimatorSample = AiliaPoseEstimatorSample()
@@ -172,6 +173,7 @@ class MainActivity : AppCompatActivity() {
         speechModelLabel = findViewById(R.id.speechModelLabel)
         speechModelSpinner = findViewById(R.id.speechModelSpinner)
         speechModeRadioGroup = findViewById(R.id.speechModeRadioGroup)
+        diarizationCheckBox = findViewById(R.id.diarizationCheckBox)
         micRecordButton = findViewById(R.id.micRecordButton)
     }
 
@@ -551,6 +553,7 @@ class MainActivity : AppCompatActivity() {
                 speechModelLabel.visibility = View.GONE
                 speechModelSpinner.visibility = View.GONE
                 speechModeRadioGroup.visibility = View.GONE
+                diarizationCheckBox.visibility = View.GONE
                 micRecordButton.visibility = View.GONE
             }
 
@@ -585,6 +588,7 @@ class MainActivity : AppCompatActivity() {
                 speechModelLabel.visibility = View.GONE
                 speechModelSpinner.visibility = View.GONE
                 speechModeRadioGroup.visibility = View.GONE
+                diarizationCheckBox.visibility = View.GONE
                 micRecordButton.visibility = View.GONE
             }
 
@@ -619,6 +623,7 @@ class MainActivity : AppCompatActivity() {
                 speechModelLabel.visibility = View.GONE
                 speechModelSpinner.visibility = View.GONE
                 speechModeRadioGroup.visibility = View.GONE
+                diarizationCheckBox.visibility = View.GONE
                 micRecordButton.visibility = View.GONE
             }
 
@@ -650,6 +655,8 @@ class MainActivity : AppCompatActivity() {
                 speechModelLabel.visibility = View.VISIBLE
                 speechModelSpinner.visibility = View.VISIBLE
                 speechModeRadioGroup.visibility = View.VISIBLE
+                // Diarization is not supported in live (mic) mode
+                diarizationCheckBox.visibility = if (isMicMode) View.GONE else View.VISIBLE
                 micRecordButton.visibility = if (isMicMode) View.VISIBLE else View.GONE
             }
             AlgorithmType.LLM -> {
@@ -678,6 +685,7 @@ class MainActivity : AppCompatActivity() {
                 speechModelLabel.visibility = View.GONE
                 speechModelSpinner.visibility = View.GONE
                 speechModeRadioGroup.visibility = View.GONE
+                diarizationCheckBox.visibility = View.GONE
                 micRecordButton.visibility = View.GONE
                 // モード切り替え時にリセット
                 llmInputEditText.setText("Hello!")
@@ -715,6 +723,7 @@ class MainActivity : AppCompatActivity() {
                 speechModelLabel.visibility = View.GONE
                 speechModelSpinner.visibility = View.GONE
                 speechModeRadioGroup.visibility = View.GONE
+                diarizationCheckBox.visibility = View.GONE
                 micRecordButton.visibility = View.GONE
                 // モード切り替え時にリセット
                 llmInputEditText.setText("What is in this image?")
@@ -749,6 +758,7 @@ class MainActivity : AppCompatActivity() {
                 speechModelLabel.visibility = View.GONE
                 speechModelSpinner.visibility = View.GONE
                 speechModeRadioGroup.visibility = View.GONE
+                diarizationCheckBox.visibility = View.GONE
                 micRecordButton.visibility = View.GONE
                 voiceGenerateButton.isEnabled = false
                 voiceResultTextView.text = ""
@@ -786,6 +796,7 @@ class MainActivity : AppCompatActivity() {
                 speechModelLabel.visibility = View.GONE
                 speechModelSpinner.visibility = View.GONE
                 speechModeRadioGroup.visibility = View.GONE
+                diarizationCheckBox.visibility = View.GONE
                 micRecordButton.visibility = View.GONE
             }
         }
@@ -1503,6 +1514,7 @@ class MainActivity : AppCompatActivity() {
             when (checkedId) {
                 R.id.wavRadioButton -> {
                     micRecordButton.visibility = View.GONE
+                    diarizationCheckBox.visibility = View.VISIBLE
                     stopMicRecording()
                     // Re-initialize in non-live mode
                     speechSample.releaseSpeech()
@@ -1513,6 +1525,10 @@ class MainActivity : AppCompatActivity() {
                 }
                 R.id.micRadioButton -> {
                     micRecordButton.visibility = View.VISIBLE
+                    // Diarization is not supported in live mode
+                    diarizationCheckBox.visibility = View.GONE
+                    diarizationCheckBox.isChecked = false
+                    speechSample.diarizationEnabled = false
                     // Re-initialize in live mode
                     speechSample.releaseSpeech()
                     isInitialized = false
@@ -1521,6 +1537,19 @@ class MainActivity : AppCompatActivity() {
                     initializeAilia()
                 }
             }
+        }
+    }
+
+    private fun setupDiarizationCheckBox() {
+        diarizationCheckBox.setOnCheckedChangeListener { _, isChecked ->
+            speechSample.diarizationEnabled = isChecked
+            // Re-initialize to apply diarization setting
+            stopMicRecording()
+            speechSample.releaseSpeech()
+            isInitialized = false
+            isDownloadingModel.set(false)
+            classificationResultTextView.text = "Speech Results: --"
+            initializeAilia()
         }
     }
 
@@ -1642,6 +1671,7 @@ class MainActivity : AppCompatActivity() {
             if (!isInitialized) {
                 setupSpeechModelSpinner()
                 setupSpeechModeRadioGroup()
+                setupDiarizationCheckBox()
                 setupMicRecordButton()
                 initializeAilia()
             }

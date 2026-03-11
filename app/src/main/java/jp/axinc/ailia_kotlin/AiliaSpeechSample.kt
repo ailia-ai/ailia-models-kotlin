@@ -57,20 +57,25 @@ enum class SpeechModelType(
 }
 
 class AiliaSpeechSample {
-    companion object {
-        private const val TAG = "AILIA_Main"
-    }
-
     interface DownloadListener {
         fun onProgress(fileName: String, bytesDownloaded: Long, totalBytes: Long)
         fun onComplete()
         fun onError(error: String)
     }
 
+    companion object {
+        private const val TAG = "AILIA_Main"
+        private const val DIARIZATION_SEGMENTATION_URL = "https://storage.googleapis.com/ailia-models/pyannote-audio/segmentation.onnx"
+        private const val DIARIZATION_EMBEDDING_URL = "https://storage.googleapis.com/ailia-models/pyannote-audio/speaker-embedding.onnx"
+        private const val DIARIZATION_SEGMENTATION_FILE = "segmentation.onnx"
+        private const val DIARIZATION_EMBEDDING_FILE = "speaker-embedding.onnx"
+    }
+
     private var speech: AiliaSpeech? = null
     private var isInitialized = false
     var modelDir: String = ""
     var currentModelType: SpeechModelType = SpeechModelType.WHISPER_TINY
+    var diarizationEnabled: Boolean = false
 
     private fun downloadFile(urlStr: String, fileName: String, listener: DownloadListener? = null): String {
         val dir = modelDir
@@ -112,6 +117,7 @@ class AiliaSpeechSample {
 
     /**
      * Downloads model files for the specified (or current) speech model type.
+     * If diarizationEnabled is true, also downloads pyannote-audio segmentation and embedding models.
      */
     fun downloadModel(modelType: SpeechModelType = currentModelType, listener: DownloadListener? = null): Boolean {
         currentModelType = modelType
@@ -128,6 +134,11 @@ class AiliaSpeechSample {
                     modelType.decoderFileName,
                     listener
                 )
+            }
+            if (diarizationEnabled) {
+                Log.i(TAG, "Downloading diarization models...")
+                downloadFile(DIARIZATION_SEGMENTATION_URL, DIARIZATION_SEGMENTATION_FILE, listener)
+                downloadFile(DIARIZATION_EMBEDDING_URL, DIARIZATION_EMBEDDING_FILE, listener)
             }
             listener?.onComplete()
             Log.i(TAG, "Speech model download/check complete for ${modelType.displayName}")
@@ -171,6 +182,19 @@ class AiliaSpeechSample {
                 flags = flags
             )
             speech?.openModel(encoderPath, decoderPath, currentModelType.modelTypeId)
+
+            // Open diarization if enabled and not in live mode
+            if (diarizationEnabled && !liveMode) {
+                val segmentationPath = "$dir/$DIARIZATION_SEGMENTATION_FILE"
+                val embeddingPath = "$dir/$DIARIZATION_EMBEDDING_FILE"
+                Log.i(TAG, "Opening diarization: segmentation=$segmentationPath, embedding=$embeddingPath")
+                val diarResult = speech?.openDiarization(
+                    segmentationPath, embeddingPath,
+                    AiliaSpeech.AILIA_SPEECH_DIARIZATION_TYPE_PYANNOTE_AUDIO
+                )
+                Log.i(TAG, "Diarization openDiarization result=$diarResult")
+            }
+
             isInitialized = true
             Log.i(TAG, "Speech initialized successfully with envId=$envId, model=${currentModelType.displayName}")
             true
@@ -234,6 +258,7 @@ class AiliaSpeechSample {
 
     /**
      * Collects text results from the speech engine.
+     * When diarization is enabled, prefixes each line with speaker ID.
      */
     private fun collectTextResults(): String {
         val count: Int? = speech?.getTextCount()
@@ -247,8 +272,13 @@ class AiliaSpeechSample {
             if (text == null) {
                 continue
             }
-            Log.i(TAG, "Speech text[$i]: '${text.text}' confidence=${text.confidence}")
-            sb.append(text.text).append("\n")
+            if (diarizationEnabled && text.speakerId.toLong() and 0xFFFFFFFFL != AiliaSpeech.AILIA_SPEECH_SPEAKER_ID_UNKNOWN.toLong() and 0xFFFFFFFFL) {
+                Log.i(TAG, "Speech text[$i]: speaker=#${text.speakerId} '${text.text}' confidence=${text.confidence}")
+                sb.append("[Speaker ${text.speakerId}] ${text.text}\n")
+            } else {
+                Log.i(TAG, "Speech text[$i]: '${text.text}' confidence=${text.confidence}")
+                sb.append(text.text).append("\n")
+            }
         }
         speech?.resetTranscribeState()
         val result = sb.toString()
