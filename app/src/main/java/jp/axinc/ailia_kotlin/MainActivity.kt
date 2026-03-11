@@ -82,6 +82,7 @@ class MainActivity : AppCompatActivity() {
 
     private var imageAnalyzer: ImageAnalysis? = null
     private var camera: Camera? = null
+    private var latestCameraBitmap: Bitmap? = null
 
     private var selectedVoiceModelType: VoiceModelType = VoiceModelType.GPT_SOVITS_V1
 
@@ -496,6 +497,7 @@ class MainActivity : AppCompatActivity() {
 
         when (currentAlgorithm) {
             AlgorithmType.TOKENIZE -> {
+                modeRadioGroup.visibility = View.GONE
                 imageView.visibility = View.GONE
                 cameraPreviewView.visibility = View.GONE
                 resultScrollView.visibility = View.VISIBLE
@@ -520,6 +522,7 @@ class MainActivity : AppCompatActivity() {
             }
 
             AlgorithmType.CLASSIFICATION -> {
+                modeRadioGroup.visibility = View.VISIBLE
                 if (isImageMode) {
                     imageView.visibility = View.VISIBLE
                     cameraPreviewView.visibility = View.GONE
@@ -549,6 +552,7 @@ class MainActivity : AppCompatActivity() {
             }
 
             AlgorithmType.TRACKING -> {
+                modeRadioGroup.visibility = View.VISIBLE
                 if (isImageMode) {
                     imageView.visibility = View.VISIBLE
                     cameraPreviewView.visibility = View.GONE
@@ -578,6 +582,7 @@ class MainActivity : AppCompatActivity() {
             }
 
             AlgorithmType.SPEECH_TO_TEXT -> {
+                modeRadioGroup.visibility = View.GONE
                 imageView.visibility = View.GONE
                 cameraPreviewView.visibility = View.GONE
                 resultScrollView.visibility = View.VISIBLE
@@ -601,6 +606,7 @@ class MainActivity : AppCompatActivity() {
                 voiceResultTextView.visibility = View.GONE
             }
             AlgorithmType.LLM -> {
+                modeRadioGroup.visibility = View.GONE
                 imageView.visibility = View.GONE
                 cameraPreviewView.visibility = View.GONE
                 resultScrollView.visibility = View.VISIBLE
@@ -629,8 +635,13 @@ class MainActivity : AppCompatActivity() {
                 llmSendButton.isEnabled = false
             }
             AlgorithmType.MULTIMODAL_LLM -> {
+                modeRadioGroup.visibility = View.VISIBLE
                 imageView.visibility = View.GONE
-                cameraPreviewView.visibility = View.GONE
+                if (isImageMode) {
+                    cameraPreviewView.visibility = View.GONE
+                } else {
+                    cameraPreviewView.visibility = View.VISIBLE
+                }
                 resultScrollView.visibility = View.VISIBLE
                 classificationResultTextView.visibility = View.GONE
                 tokenizerInputEditText.visibility = View.GONE
@@ -658,6 +669,7 @@ class MainActivity : AppCompatActivity() {
             }
 
             AlgorithmType.TEXT_TO_SPEECH -> {
+                modeRadioGroup.visibility = View.GONE
                 imageView.visibility = View.GONE
                 cameraPreviewView.visibility = View.GONE
                 resultScrollView.visibility = View.VISIBLE
@@ -685,6 +697,7 @@ class MainActivity : AppCompatActivity() {
             }
 
             else -> {
+                modeRadioGroup.visibility = View.VISIBLE
                 if (isImageMode) {
                     imageView.visibility = View.VISIBLE
                     cameraPreviewView.visibility = View.GONE
@@ -791,6 +804,7 @@ class MainActivity : AppCompatActivity() {
             R.id.cameraRadioButton -> {
                 if (allPermissionsGranted()) {
                     updateUIVisibility()
+                    imageView.setImageBitmap(null)
                     startCamera()
                 } else {
                     Toast.makeText(this, "Camera permission required", Toast.LENGTH_SHORT).show()
@@ -1237,8 +1251,17 @@ class MainActivity : AppCompatActivity() {
             llmStatusTextView.text = "Status: Generating..."
             llmOutputTextView.text = ""
 
+            val isCameraMode = modeRadioGroup.checkedRadioButtonId == R.id.cameraRadioButton
+            val imagePath = if (isCameraMode && latestCameraBitmap != null) {
+                val tmpFile = File(cacheDir, "camera_frame.png")
+                FileOutputStream(tmpFile).use { latestCameraBitmap!!.compress(Bitmap.CompressFormat.PNG, 100, it) }
+                tmpFile.absolutePath
+            } else {
+                null
+            }
+
             cameraExecutor.execute {
-                val processingTime = multimodalLLMSample.chatWithImage(null, userInput, object : AiliaMultimodalLLMSample.MultimodalLLMListener {
+                val processingTime = multimodalLLMSample.chatWithImage(imagePath, userInput, object : AiliaMultimodalLLMSample.MultimodalLLMListener {
                     override fun onDownloadProgress(fileName: String, bytesDownloaded: Long, totalBytes: Long) {}
                     override fun onToken(token: String) {
                         runOnUiThread {
@@ -1376,11 +1399,13 @@ class MainActivity : AppCompatActivity() {
 
         // MultimodalLLMはperson画像を表示してから初期化
         if (currentAlgorithm == AlgorithmType.MULTIMODAL_LLM) {
-            // person画像をmultimodalImageViewに表示
-            val options = BitmapFactory.Options()
-            options.inScaled = false
-            val personBmp = BitmapFactory.decodeResource(this.resources, R.raw.person, options)
-            multimodalImageView.setImageBitmap(personBmp)
+            val isImageMode = modeRadioGroup.checkedRadioButtonId == R.id.imageRadioButton
+            if (isImageMode) {
+                val options = BitmapFactory.Options()
+                options.inScaled = false
+                val personBmp = BitmapFactory.decodeResource(this.resources, R.raw.person, options)
+                multimodalImageView.setImageBitmap(personBmp)
+            }
 
             if (!isInitialized) {
                 initializeAilia()
@@ -1581,7 +1606,10 @@ class MainActivity : AppCompatActivity() {
                 val processingTime = processAlgorithm(img, bitmap, canvas, w, h)
 
                 runOnUiThread {
-                    if (currentAlgorithm != AlgorithmType.TOKENIZE) {
+                    if (currentAlgorithm == AlgorithmType.MULTIMODAL_LLM) {
+                        latestCameraBitmap = camera_bitmap
+                        multimodalImageView.setImageBitmap(camera_bitmap)
+                    } else if (currentAlgorithm != AlgorithmType.TOKENIZE) {
                         imageView.setImageBitmap(bitmap)
                     }
 
