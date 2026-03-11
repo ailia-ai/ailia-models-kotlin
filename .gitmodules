@@ -13,3 +13,6 @@
 [submodule "ailia-speech-jni"]
 	path = ailia-speech-jni
 	url = git@github.com:ailia-ai/ailia-speech-jni.git
+[submodule "ailia-llm-jni"]
+	path = ailia-llm-jni
+	url = git@github.com:ailia-ai/ailia-llm-jni.git
