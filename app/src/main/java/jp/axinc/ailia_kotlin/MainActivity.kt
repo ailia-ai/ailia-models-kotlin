@@ -1132,6 +1132,7 @@ class MainActivity : AppCompatActivity() {
                     runOnUiThread {
                         llmStatusTextView.text = "Status: Downloading model..."
                         llmSendButton.isEnabled = false
+                        algorithmSpinner.isEnabled = false
                     }
                     cameraExecutor.execute {
                         val success = llmSample.initialize(this@MainActivity, object : ModelDownloader.DownloadListener {
@@ -1152,6 +1153,7 @@ class MainActivity : AppCompatActivity() {
                         })
                         runOnUiThread {
                             isInitialized = success
+                            algorithmSpinner.isEnabled = true
                             if (success) {
                                 llmStatusTextView.text = "Status: Ready"
                                 llmSendButton.isEnabled = true
@@ -1167,6 +1169,7 @@ class MainActivity : AppCompatActivity() {
                     runOnUiThread {
                         llmStatusTextView.text = "Status: Downloading model..."
                         llmSendButton.isEnabled = false
+                        algorithmSpinner.isEnabled = false
                     }
                     cameraExecutor.execute {
                         val success = multimodalLLMSample.initialize(this@MainActivity, object : AiliaMultimodalLLMSample.MultimodalLLMListener {
@@ -1189,6 +1192,7 @@ class MainActivity : AppCompatActivity() {
                         runOnUiThread {
                             Log.i("AILIA_Main", "MultimodalLLM: runOnUiThread callback, success=$success, currentAlgorithm=$currentAlgorithm")
                             isInitialized = success
+                            algorithmSpinner.isEnabled = true
                             if (success) {
                                 llmStatusTextView.text = "Status: Ready"
                                 llmSendButton.isEnabled = true
@@ -1228,6 +1232,7 @@ class MainActivity : AppCompatActivity() {
             }
 
             llmSendButton.isEnabled = false
+            algorithmSpinner.isEnabled = false
             llmStatusTextView.text = "Status: Generating..."
             llmOutputTextView.text = ""
 
@@ -1251,6 +1256,7 @@ class MainActivity : AppCompatActivity() {
                 })
                 runOnUiThread {
                     llmSendButton.isEnabled = true
+                    algorithmSpinner.isEnabled = true
                     if (processingTime > 0) {
                         processingTimeTextView.text = "Processing Time: ${processingTime}ms (LLM)"
                     }
@@ -1268,6 +1274,11 @@ class MainActivity : AppCompatActivity() {
             }
 
             llmSendButton.isEnabled = false
+            algorithmSpinner.isEnabled = false
+            modeRadioGroup.isEnabled = false
+            for (i in 0 until modeRadioGroup.childCount) {
+                modeRadioGroup.getChildAt(i).isEnabled = false
+            }
             llmStatusTextView.text = "Status: Generating..."
             llmOutputTextView.text = ""
 
@@ -1308,6 +1319,11 @@ class MainActivity : AppCompatActivity() {
                 })
                 runOnUiThread {
                     llmSendButton.isEnabled = true
+                    algorithmSpinner.isEnabled = true
+                    modeRadioGroup.isEnabled = true
+                    for (i in 0 until modeRadioGroup.childCount) {
+                        modeRadioGroup.getChildAt(i).isEnabled = true
+                    }
                     if (processingTime > 0) {
                         processingTimeTextView.text = "Processing Time: ${processingTime}ms (MultimodalLLM)"
                     }
