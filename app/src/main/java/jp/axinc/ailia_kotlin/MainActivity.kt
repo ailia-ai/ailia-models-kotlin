@@ -33,6 +33,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var cameraPreviewView: PreviewView
     private lateinit var modeRadioGroup: RadioGroup
     private lateinit var algorithmSpinner: Spinner
+    private lateinit var envSpinner: Spinner
+    private lateinit var envLabel: TextView
     private lateinit var processingTimeTextView: TextView
     private lateinit var resultScrollView: ScrollView
     private lateinit var classificationResultTextView: TextView
@@ -61,7 +63,8 @@ class MainActivity : AppCompatActivity() {
     private var llmSample = AiliaLLMSample()
     private var multimodalLLMSample = AiliaMultimodalLLMSample()
 
-    private var selectedEnv: AiliaEnvironment? = null
+    private var selectedEnvId: Int = 0
+    private var ailiaEnvironments: List<AiliaEnvironment>? = null
     private var isInitialized = false
     private var currentAlgorithm = AlgorithmType.POSE_ESTIMATION
     private var pendingAlgorithmSwitch: AlgorithmType? = null
@@ -122,6 +125,8 @@ class MainActivity : AppCompatActivity() {
         cameraPreviewView = findViewById(R.id.cameraPreviewView)
         modeRadioGroup = findViewById(R.id.modeRadioGroup)
         algorithmSpinner = findViewById(R.id.algorithmSpinner)
+        envSpinner = findViewById(R.id.envSpinner)
+        envLabel = findViewById(R.id.envLabel)
         processingTimeTextView = findViewById(R.id.processingTimeTextView)
         resultScrollView = findViewById(R.id.resultScrollView)
         classificationResultTextView = findViewById(R.id.classificationResultTextView)
@@ -166,6 +171,7 @@ class MainActivity : AppCompatActivity() {
                 id: Long
             ) {
                 val newAlgorithm = AlgorithmType.values()[position]
+                updateEnvSpinner(newAlgorithm)
                 if (newAlgorithm != currentAlgorithm) {
                     switchAlgorithm(newAlgorithm)
                 }
@@ -187,6 +193,77 @@ class MainActivity : AppCompatActivity() {
         }
 
         switchToImageMode()
+    }
+
+    private fun updateEnvSpinner(algorithm: AlgorithmType) {
+        when (algorithm) {
+            AlgorithmType.POSE_ESTIMATION -> {
+                // ailia SDK: 利用可能な環境リストを表示
+                try {
+                    if (ailiaEnvironments == null) {
+                        Ailia.SetTemporaryCachePath(cacheDir.absolutePath)
+                        ailiaEnvironments = AiliaModel.getEnvironments()
+                    }
+                    val envNames = ailiaEnvironments!!.map { "${it.name} (id:${it.id})" }.toTypedArray()
+                    val adapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, envNames)
+                    adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+                    envSpinner.adapter = adapter
+
+                    // GPUをデフォルト選択
+                    var defaultIndex = 0
+                    for ((index, env) in ailiaEnvironments!!.withIndex()) {
+                        if (env.type == AiliaEnvironment.TYPE_GPU && env.props and AiliaEnvironment.PROPERTY_FP16 == 0) {
+                            defaultIndex = index
+                            break
+                        }
+                    }
+                    envSpinner.setSelection(defaultIndex)
+                    selectedEnvId = ailiaEnvironments!![defaultIndex].id
+
+                    envSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+                        override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
+                            selectedEnvId = ailiaEnvironments!![position].id
+                        }
+                        override fun onNothingSelected(parent: AdapterView<*>?) {}
+                    }
+
+                    envLabel.visibility = View.VISIBLE
+                    envSpinner.visibility = View.VISIBLE
+                } catch (e: Exception) {
+                    Log.e("AILIA_Main", "Failed to get ailia environments: ${e.message}")
+                    envLabel.visibility = View.GONE
+                    envSpinner.visibility = View.GONE
+                }
+            }
+
+            AlgorithmType.OBJECT_DETECTION, AlgorithmType.CLASSIFICATION, AlgorithmType.TRACKING -> {
+                // TFLite: Reference (CPU) と NNAPI を表示
+                val tfliteEnvNames = arrayOf("Reference (CPU)", "NNAPI")
+                val tfliteEnvIds = intArrayOf(AiliaTFLite.AILIA_TFLITE_ENV_REFERENCE, AiliaTFLite.AILIA_TFLITE_ENV_NNAPI)
+                val adapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, tfliteEnvNames)
+                adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+                envSpinner.adapter = adapter
+
+                // デフォルトは NNAPI
+                envSpinner.setSelection(1)
+                selectedEnvId = AiliaTFLite.AILIA_TFLITE_ENV_NNAPI
+
+                envSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+                    override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
+                        selectedEnvId = tfliteEnvIds[position]
+                    }
+                    override fun onNothingSelected(parent: AdapterView<*>?) {}
+                }
+
+                envLabel.visibility = View.VISIBLE
+                envSpinner.visibility = View.VISIBLE
+            }
+
+            else -> {
+                envLabel.visibility = View.GONE
+                envSpinner.visibility = View.GONE
+            }
+        }
     }
 
     private fun processAlgorithm(
@@ -604,14 +681,12 @@ class MainActivity : AppCompatActivity() {
 
     private fun initializeAilia() {
         try {
-            selectedEnv = poseEstimatorSample.ailia_environment(cacheDir.absolutePath)
-
             when (currentAlgorithm) {
                 AlgorithmType.POSE_ESTIMATION -> {
                     val proto: ByteArray? = loadRawFile(R.raw.lightweight_human_pose_proto)
                     val model: ByteArray? = loadRawFile(R.raw.lightweight_human_pose_weight)
                     isInitialized =
-                        poseEstimatorSample.initializePoseEstimator(selectedEnv!!.id, proto, model)
+                        poseEstimatorSample.initializePoseEstimator(selectedEnvId, proto, model)
                 }
 
                 AlgorithmType.OBJECT_DETECTION -> {
@@ -619,7 +694,7 @@ class MainActivity : AppCompatActivity() {
                     val yoloxModel: ByteArray? = loadRawFile(R.raw.yolox_s)
                     isInitialized = objectDetectionSample.initializeObjectDetection(
                         yoloxModel,
-                        env = AiliaTFLite.AILIA_TFLITE_ENV_NNAPI
+                        env = selectedEnvId
                     )
                 }
 
@@ -627,7 +702,7 @@ class MainActivity : AppCompatActivity() {
                     val classificationModel: ByteArray? = loadRawFile(R.raw.mobilenetv2)
                     isInitialized = classificationSample.initializeClassification(
                         classificationModel,
-                        env = AiliaTFLite.AILIA_TFLITE_ENV_NNAPI
+                        env = selectedEnvId
                     )
                 }
 
@@ -640,7 +715,7 @@ class MainActivity : AppCompatActivity() {
                     val yoloxModel: ByteArray? = loadRawFile(R.raw.yolox_s)
                     if (objectDetectionSample.initializeObjectDetection(
                             yoloxModel,
-                            env = AiliaTFLite.AILIA_TFLITE_ENV_NNAPI
+                            env = selectedEnvId
                         )
                     ) {
                         isInitialized = trackerSample.initializeTracker()
