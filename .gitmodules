@@ -16,4 +16,3 @@
 [submodule "ailia-llm-jni"]
 	path = ailia-llm-jni
 	url = git@github.com:ailia-ai/ailia-llm-jni.git
-	branch = pre-release
