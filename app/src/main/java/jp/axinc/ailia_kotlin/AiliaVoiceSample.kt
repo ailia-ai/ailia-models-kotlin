@@ -1,6 +1,5 @@
 package jp.axinc.ailia_kotlin
 
-import android.os.Environment
 import android.util.Log
 import axip.ailia_voice.AiliaVoice
 import axip.ailia_voice.AiliaVoice.Companion.AILIA_VOICE_DICTIONARY_TYPE_OPEN_JTALK
@@ -45,14 +44,11 @@ class AiliaVoiceSample {
     }
 
     var modelType: VoiceModelType = VoiceModelType.GPT_SOVITS_V1
+    var modelDir: String = ""
     private var downloadListener: DownloadListener? = null
 
-    private fun modelDirectory() : String{
-        return Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS).absolutePath
-    }
-
     private fun download(link: String, name: String): String {
-        val dir: String = modelDirectory()
+        val dir: String = modelDir
         val path: String = "$dir/$name"
         try {
             if (File(path).exists()) {
@@ -180,7 +176,7 @@ class AiliaVoiceSample {
         )
     }
 
-    fun initializeVoice(listener: DownloadListener? = null): Boolean {
+    fun initializeVoice(envId: Int = -1, listener: DownloadListener? = null): Boolean {
         this.downloadListener = listener
         return try {
             Log.i(TAG, "Begin model download for $modelType")
@@ -204,9 +200,10 @@ class AiliaVoiceSample {
                 releaseVoice()
             }
 
-            voice = AiliaVoice()
+            Log.i(TAG, "Initializing voice with envId=$envId")
+            voice = AiliaVoice(envId = envId)
 
-            val dir: String = modelDirectory()
+            val dir: String = modelDir
             voice?.setUserDictionaryFile(path = "${dir}/user.dict", AILIA_VOICE_DICTIONARY_TYPE_OPEN_JTALK)
             voice?.openDictionaryFile(path = dir, dictionaryType = AILIA_VOICE_DICTIONARY_TYPE_OPEN_JTALK)
             voice?.openDictionaryFile(path = dir, dictionaryType = AILIA_VOICE_DICTIONARY_TYPE_G2P_EN)

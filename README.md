@@ -24,15 +24,22 @@ git submodule update
 |Category|Model|SDK|
 |-----|-----|-----|
 |Pose Estimation|[Light Weight Human Pose Estimation](app/src/main/java/jp/axinc/ailia_kotlin/AiliaPoseEstimatorSample.kt)|ailia SDK (ONNX)|
-|Object Detection|[YOLOX](app/src/main/java/jp/axinc/ailia_kotlin/AiliaTFLiteObjectDetectionSample.kt)|ailia TFLite Runtime|
-|Object Tracking|[ByteTrack](app/src/main/java/jp/axinc/ailia_kotlin/AiliaTrackerSample.kt)|ailia TFLite Runtime + ailia Tracker|
-|Image Classification|[MobileNetV2](app/src/main/java/jp/axinc/ailia_kotlin/AiliaTFLiteClassificationSample.kt)|ailia TFLite Runtime|
-|NLP|[GPT2 Tokenizer](app/src/main/java/jp/axinc/ailia_kotlin/AiliaTokenizerSample.kt)|ailia Tokenizer|
-|Whisper|[Whisper](app/src/main/java/jp/axinc/ailia_kotlin/AiliaSpeechSample.kt)|ailia Speech|
+|Object Detection|[YOLOX (TFLite)](app/src/main/java/jp/axinc/ailia_kotlin/AiliaTFLiteObjectDetectionSample.kt) / [YOLOX (ONNX)](app/src/main/java/jp/axinc/ailia_kotlin/AiliaOnnxObjectDetectionSample.kt)|ailia TFLite Runtime / ailia SDK (ONNX)|
+|Object Tracking|[ByteTrack](app/src/main/java/jp/axinc/ailia_kotlin/AiliaTrackerSample.kt)|ailia TFLite Runtime / ailia SDK (ONNX) + ailia Tracker|
+|Image Classification|[MobileNetV2 (TFLite)](app/src/main/java/jp/axinc/ailia_kotlin/AiliaTFLiteClassificationSample.kt) / [MobileNetV2 (ONNX)](app/src/main/java/jp/axinc/ailia_kotlin/AiliaOnnxClassificationSample.kt)|ailia TFLite Runtime / ailia SDK (ONNX)|
+|Tokenizer|[Whisper Tokenizer](app/src/main/java/jp/axinc/ailia_kotlin/AiliaTokenizerSample.kt)|ailia Tokenizer|
+|Speech to Text|[Whisper](app/src/main/java/jp/axinc/ailia_kotlin/AiliaSpeechSample.kt)|ailia AI Speech|
+|Text to Speech|[GPT-SoVITS](app/src/main/java/jp/axinc/ailia_kotlin/AiliaVoiceSample.kt)|ailia AI Voice|
+|LLM|[Gemma 2 2B](app/src/main/java/jp/axinc/ailia_kotlin/AiliaLLMSample.kt)|ailia LLM|
+|Multimodal LLM|[Gemma 3 4B](app/src/main/java/jp/axinc/ailia_kotlin/AiliaMultimodalLLMSample.kt)|ailia LLM|
 
-## Usage
+## Screenshots
 
-You can select the model at the top. In the second, you can choose between image or camera.
-
-![input image](./demo/pose_estimation.png)
-![input image](./demo/yolox.png)
+| | | |
+|:---:|:---:|:---:|
+|Pose Estimation|Object Detection|Tracking|
+|<img src="./demo/pose_estimation.png" width="240">|<img src="./demo/object_detection.png" width="240">|<img src="./demo/tracking.png" width="240">|
+|Classification|Tokenizer|Speech to Text|
+|<img src="./demo/classification.png" width="240">|<img src="./demo/tokenizer.png" width="240">|<img src="./demo/speech_to_text.png" width="240">|
+|Text to Speech|LLM|Multimodal LLM|
+|<img src="./demo/text_to_speech.png" width="240">|<img src="./demo/llm.png" width="240">|<img src="./demo/multimodal_llm.png" width="240">|

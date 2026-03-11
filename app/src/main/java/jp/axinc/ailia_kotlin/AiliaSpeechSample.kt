@@ -1,96 +1,147 @@
 package jp.axinc.ailia_kotlin
 
-import android.os.Environment
 import android.util.Log
 import java.io.File
 import java.io.FileOutputStream
+import java.net.HttpURLConnection
 import java.net.URL
-import java.nio.file.Files
 
 import axip.ailia_speech.AiliaSpeech
 import axip.ailia_speech.AiliaSpeechText
 
-import java.util.concurrent.Callable
-import java.util.concurrent.Executors
-import java.util.concurrent.Future
-
 class AiliaSpeechSample {
+    companion object {
+        private const val TAG = "AILIA_Main"
+    }
+
+    interface DownloadListener {
+        fun onProgress(fileName: String, bytesDownloaded: Long, totalBytes: Long)
+        fun onComplete()
+        fun onError(error: String)
+    }
+
     private var speech: AiliaSpeech? = null
     private var isInitialized = false
-    private var lastTokenizationResult: String = ""
+    var modelDir: String = ""
 
-    fun download(link: String, name: String): String {
-        val dir: String = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS).absolutePath
-        val path: String = "$dir/$name"
-        try {
-            if (File(path).exists()) {
+    private fun downloadFile(urlStr: String, fileName: String, listener: DownloadListener? = null): String {
+        val dir = modelDir
+        if (dir.isEmpty()) throw IllegalStateException("modelDir not set")
+        val path = "$dir/$fileName"
+        val file = File(path)
+        if (file.exists()) {
+            if (file.canRead()) {
+                Log.i(TAG, "Model file already exists and readable: $path (${file.length()} bytes)")
                 return path
+            } else {
+                Log.w(TAG, "Model file exists but not readable, re-downloading: $path")
+                file.delete()
             }
-            URL(link).openStream().copyTo(FileOutputStream(File(path)))
-        } catch (e: Exception) {
-            Log.e("AILIA_Main", "Model Download Failed", e)
-            return ""
         }
+        File(path).parentFile?.mkdirs()
+        val tmpFile = File("$path.tmp")
+        val url = URL(urlStr)
+        val connection = url.openConnection() as HttpURLConnection
+        connection.connectTimeout = 30000
+        connection.readTimeout = 60000
+        connection.connect()
+        val totalBytes = connection.contentLengthLong
+        connection.inputStream.use { input ->
+            FileOutputStream(tmpFile).use { output ->
+                val buffer = ByteArray(8192)
+                var bytesDownloaded: Long = 0
+                var bytesRead: Int
+                while (input.read(buffer).also { bytesRead = it } != -1) {
+                    output.write(buffer, 0, bytesRead)
+                    bytesDownloaded += bytesRead
+                    listener?.onProgress(fileName, bytesDownloaded, totalBytes)
+                }
+            }
+        }
+        tmpFile.renameTo(File(path))
         return path
     }
 
-    fun initializeSpeech(): Boolean {
-        val executor = Executors.newFixedThreadPool(2)
-
+    fun downloadModel(listener: DownloadListener? = null): Boolean {
         return try {
-            Log.i("AILIA_Main", "Begin model download")
-            val encoderFuture: Future<String> = executor.submit(Callable {
-                download("https://storage.googleapis.com/ailia-models/whisper/encoder_tiny.opt3.onnx", "encoder_tiny.onnx")
-            })
-
-            val decoderFuture: Future<String> = executor.submit(Callable {
-                download("https://storage.googleapis.com/ailia-models/whisper/decoder_tiny_fix_kv_cache.opt3.onnx", "decoder_tiny.onnx")
-            })
-
-            val encoder_path = encoderFuture.get() // Blocking call
-            val decoder_path = decoderFuture.get() // Blocking call
-            Log.i("AILIA_Main", "End model download")
-
-            if (encoder_path == "" || decoder_path == ""){
-                Log.e("AILIA_Main", "Model download failed")
-            }
-
-            if (isInitialized) {
-                releaseSpeech()
-            }
-
-            Log.i("AILIA_Main", encoder_path)
-            Log.i("AILIA_Main", decoder_path)
-
-            speech = AiliaSpeech(AiliaSpeech.AILIA_SPEECH_TASK_TRANSCRIBE)
-            speech?.openModel(encoder_path, decoder_path, AiliaSpeech.AILIA_SPEECH_MODEL_TYPE_WHISPER_MULTILINGUAL_TINY)
-            isInitialized = true
-            Log.i("AILIA_Main", "Speech initialized successfully")
+            Log.i(TAG, "Starting speech model download/check...")
+            downloadFile(
+                "https://storage.googleapis.com/ailia-models/whisper/encoder_tiny.opt3.onnx",
+                "encoder_tiny.onnx",
+                listener
+            )
+            downloadFile(
+                "https://storage.googleapis.com/ailia-models/whisper/decoder_tiny_fix_kv_cache.opt3.onnx",
+                "decoder_tiny.onnx",
+                listener
+            )
+            listener?.onComplete()
+            Log.i(TAG, "Speech model download/check complete")
             true
         } catch (e: Exception) {
-            Log.e("AILIA_Error", "Failed to initialize speech: ${e.javaClass.name}: ${e.message}")
+            Log.e(TAG, "Speech model download failed", e)
+            listener?.onError(e.message ?: "Download failed")
+            false
+        }
+    }
+
+    fun initializeSpeech(envId: Int = -1): Boolean {
+        if (isInitialized) {
+            releaseSpeech()
+        }
+
+        return try {
+            val dir = modelDir
+            val encoderPath = "$dir/encoder_tiny.onnx"
+            val decoderPath = "$dir/decoder_tiny.onnx"
+
+            Log.i(TAG, "Initializing speech with envId=$envId")
+            Log.i(TAG, "Encoder: $encoderPath")
+            Log.i(TAG, "Decoder: $decoderPath")
+
+            speech = AiliaSpeech(
+                envId = envId,
+                task = AiliaSpeech.AILIA_SPEECH_TASK_TRANSCRIBE
+            )
+            speech?.openModel(encoderPath, decoderPath, AiliaSpeech.AILIA_SPEECH_MODEL_TYPE_WHISPER_MULTILINGUAL_TINY)
+            isInitialized = true
+            Log.i(TAG, "Speech initialized successfully with envId=$envId")
+            true
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to initialize speech: ${e.javaClass.name}: ${e.message}")
             releaseSpeech()
             false
         }
     }
 
-    fun process(audio: FloatArray, channels: Int, sampleRate: Int) : String{
-        speech?.pushInputData(audio, channels, audio.size / channels, sampleRate)
-        speech?.finalizeInputData()
-        speech?.transcribe()
-        var count : Int? = speech?.getTextCount()
-        if (count == null){
+    fun process(audio: FloatArray, channels: Int, sampleRate: Int): String {
+        Log.i(TAG, "Speech process: audio.size=${audio.size}, channels=$channels, sampleRate=$sampleRate, samples=${audio.size / channels}")
+        val pushResult = speech?.pushInputData(audio, channels, audio.size / channels, sampleRate)
+        Log.i(TAG, "Speech pushInputData result=$pushResult")
+        val finalizeResult = speech?.finalizeInputData()
+        Log.i(TAG, "Speech finalizeInputData result=$finalizeResult")
+        val transcribeResult = speech?.transcribe()
+        Log.i(TAG, "Speech transcribe result=$transcribeResult")
+        if (transcribeResult != null && transcribeResult != 0) {
+            val errorDetail = speech?.getErrorDetail()
+            Log.e(TAG, "Speech transcribe error detail: $errorDetail")
+        }
+        val count: Int? = speech?.getTextCount()
+        Log.i(TAG, "Speech getTextCount=$count")
+        if (count == null) {
             return ""
         }
         var ret = ""
         for (i in 0 until count) {
-            var text : AiliaSpeechText? = speech?.getText(i)
-            if (text == null){
+            val text: AiliaSpeechText? = speech?.getText(i)
+            if (text == null) {
                 continue
             }
+            Log.i(TAG, "Speech text[$i]: '${text.text}' confidence=${text.confidence}")
             ret = ret + text.text + "\n"
         }
         speech?.resetTranscribeState()
+        Log.i(TAG, "Speech process result: '$ret'")
         return ret
     }
 
@@ -98,11 +149,11 @@ class AiliaSpeechSample {
         try {
             speech?.close()
         } catch (e: Exception) {
-            Log.e("AILIA_Error", "Error releasing speech: ${e.javaClass.name}: ${e.message}")
+            Log.e(TAG, "Error releasing speech: ${e.javaClass.name}: ${e.message}")
         } finally {
             speech = null
             isInitialized = false
-            Log.i("AILIA_Main", "Speech released")
+            Log.i(TAG, "Speech released")
         }
     }
 }
