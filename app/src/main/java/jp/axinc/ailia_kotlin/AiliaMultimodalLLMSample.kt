@@ -173,6 +173,7 @@ class AiliaMultimodalLLMSample {
             val startTime = System.nanoTime()
 
             // Create media data for the image
+            Log.i(TAG, "chatWithImage: creating media data for image: $imageToUse")
             val mediaData = AiliaLLMMediaData("image", imageToUse)
 
             // Create user message with image placeholder
@@ -182,20 +183,31 @@ class AiliaMultimodalLLMSample {
             conversationHistory.add(userMessage)
 
             // Set the multimodal prompt
+            Log.i(TAG, "chatWithImage: calling setPrompt with ${conversationHistory.size} messages...")
+            val promptStart = System.nanoTime()
             llm!!.setPrompt(conversationHistory.toTypedArray())
+            val promptTime = (System.nanoTime() - promptStart) / 1000000
+            Log.i(TAG, "chatWithImage: setPrompt completed in ${promptTime}ms")
 
             // Generate response token by token
             val responseBuilder = StringBuilder()
             var done = false
+            var tokenCount = 0
 
+            Log.i(TAG, "chatWithImage: starting generate loop...")
             while (!done) {
                 done = llm!!.generate()
                 val token = llm!!.getDeltaText()
                 if (token.isNotEmpty()) {
+                    tokenCount++
                     responseBuilder.append(token)
                     listener?.onToken(token)
+                    if (tokenCount <= 5 || tokenCount % 10 == 0) {
+                        Log.i(TAG, "chatWithImage: token[$tokenCount]='$token'")
+                    }
                 }
             }
+            Log.i(TAG, "chatWithImage: generate loop done, total tokens=$tokenCount")
 
             val fullResponse = responseBuilder.toString()
             lastResult = fullResponse

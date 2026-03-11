@@ -1184,7 +1184,9 @@ class MainActivity : AppCompatActivity() {
                                 }
                             }
                         })
+                        Log.i("AILIA_Main", "MultimodalLLM: init done on cameraExecutor, success=$success, posting to UI thread")
                         runOnUiThread {
+                            Log.i("AILIA_Main", "MultimodalLLM: runOnUiThread callback, success=$success, currentAlgorithm=$currentAlgorithm")
                             isInitialized = success
                             if (success) {
                                 llmStatusTextView.text = "Status: Ready"
@@ -1192,8 +1194,10 @@ class MainActivity : AppCompatActivity() {
                                 setupMultimodalLLMSendButton()
                                 // Load the sample image
                                 loadSampleImageForMultimodal()
+                                Log.i("AILIA_Main", "MultimodalLLM: UI updated to Ready")
                             } else {
                                 llmStatusTextView.text = "Status: Initialization failed"
+                                Log.i("AILIA_Main", "MultimodalLLM: initialization failed")
                             }
                         }
                     }
@@ -1275,7 +1279,9 @@ class MainActivity : AppCompatActivity() {
                 null
             }
 
+            Log.i("AILIA_Main", "MultimodalLLM Send: submitting chatWithImage to cameraExecutor, imagePath=$imagePath, userInput='$userInput'")
             cameraExecutor.execute {
+                Log.i("AILIA_Main", "MultimodalLLM Send: cameraExecutor task started, calling chatWithImage...")
                 val processingTime = multimodalLLMSample.chatWithImage(imagePath, userInput, object : AiliaMultimodalLLMSample.MultimodalLLMListener {
                     override fun onDownloadProgress(fileName: String, bytesDownloaded: Long, totalBytes: Long) {}
                     override fun onToken(token: String) {
@@ -1305,11 +1311,13 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun loadSampleImageForMultimodal() {
+        val isImageMode = modeRadioGroup.checkedRadioButtonId == R.id.imageRadioButton
+        if (!isImageMode) return  // Camera mode: don't load sample image
         val imagePath = multimodalLLMSample.getSampleImagePath()
         if (imagePath != null) {
             val bitmap = android.graphics.BitmapFactory.decodeFile(imagePath)
             if (bitmap != null) {
-                imageView.setImageBitmap(bitmap)
+                multimodalImageView.setImageBitmap(bitmap)
             }
         }
     }
