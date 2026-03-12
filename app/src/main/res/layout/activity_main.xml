@@ -228,6 +228,14 @@
                 android:visibility="gone" />
 
             <Button
+                android:id="@+id/speechRunButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="8dp"
+                android:text="Run"
+                android:visibility="gone" />
+
+            <Button
                 android:id="@+id/micRecordButton"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"

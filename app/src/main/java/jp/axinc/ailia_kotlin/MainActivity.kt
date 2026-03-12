@@ -61,6 +61,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var speechModelSpinner: Spinner
     private lateinit var speechModeRadioGroup: RadioGroup
     private lateinit var diarizationCheckBox: CheckBox
+    private lateinit var speechRunButton: Button
     private lateinit var micRecordButton: Button
 
     private var poseEstimatorSample = AiliaPoseEstimatorSample()
@@ -174,6 +175,7 @@ class MainActivity : AppCompatActivity() {
         speechModelSpinner = findViewById(R.id.speechModelSpinner)
         speechModeRadioGroup = findViewById(R.id.speechModeRadioGroup)
         diarizationCheckBox = findViewById(R.id.diarizationCheckBox)
+        speechRunButton = findViewById(R.id.speechRunButton)
         micRecordButton = findViewById(R.id.micRecordButton)
     }
 
@@ -505,7 +507,7 @@ class MainActivity : AppCompatActivity() {
                     speechSample.process(audio.audioData, audio.channels, audio.sampleRate)
                 val endTime = System.nanoTime()
                 runOnUiThread {
-                    classificationResultTextView.text = "Speech Results:\n$text"
+                    classificationResultTextView.text = "Speech Result:\n$text"
                 }
                 (endTime - startTime) / 1000000
             }
@@ -554,6 +556,7 @@ class MainActivity : AppCompatActivity() {
                 speechModelSpinner.visibility = View.GONE
                 speechModeRadioGroup.visibility = View.GONE
                 diarizationCheckBox.visibility = View.GONE
+                speechRunButton.visibility = View.GONE
                 micRecordButton.visibility = View.GONE
             }
 
@@ -589,6 +592,7 @@ class MainActivity : AppCompatActivity() {
                 speechModelSpinner.visibility = View.GONE
                 speechModeRadioGroup.visibility = View.GONE
                 diarizationCheckBox.visibility = View.GONE
+                speechRunButton.visibility = View.GONE
                 micRecordButton.visibility = View.GONE
             }
 
@@ -624,6 +628,7 @@ class MainActivity : AppCompatActivity() {
                 speechModelSpinner.visibility = View.GONE
                 speechModeRadioGroup.visibility = View.GONE
                 diarizationCheckBox.visibility = View.GONE
+                speechRunButton.visibility = View.GONE
                 micRecordButton.visibility = View.GONE
             }
 
@@ -634,6 +639,7 @@ class MainActivity : AppCompatActivity() {
                 cameraPreviewView.visibility = View.GONE
                 resultScrollView.visibility = View.VISIBLE
                 classificationResultTextView.visibility = View.VISIBLE
+                classificationResultTextView.text = "Speech Result: --"
                 tokenizerInputEditText.visibility = View.GONE
                 tokenizerOutputTextView.visibility = View.GONE
                 trackingResultTextView.visibility = View.GONE
@@ -656,6 +662,7 @@ class MainActivity : AppCompatActivity() {
                 speechModelSpinner.visibility = View.VISIBLE
                 speechModeRadioGroup.visibility = View.VISIBLE
                 diarizationCheckBox.visibility = View.VISIBLE
+                speechRunButton.visibility = if (isMicMode) View.GONE else View.VISIBLE
                 micRecordButton.visibility = if (isMicMode) View.VISIBLE else View.GONE
             }
             AlgorithmType.LLM -> {
@@ -685,6 +692,7 @@ class MainActivity : AppCompatActivity() {
                 speechModelSpinner.visibility = View.GONE
                 speechModeRadioGroup.visibility = View.GONE
                 diarizationCheckBox.visibility = View.GONE
+                speechRunButton.visibility = View.GONE
                 micRecordButton.visibility = View.GONE
                 // モード切り替え時にリセット
                 llmInputEditText.setText("Hello!")
@@ -723,6 +731,7 @@ class MainActivity : AppCompatActivity() {
                 speechModelSpinner.visibility = View.GONE
                 speechModeRadioGroup.visibility = View.GONE
                 diarizationCheckBox.visibility = View.GONE
+                speechRunButton.visibility = View.GONE
                 micRecordButton.visibility = View.GONE
                 // モード切り替え時にリセット
                 llmInputEditText.setText("What is in this image?")
@@ -758,6 +767,7 @@ class MainActivity : AppCompatActivity() {
                 speechModelSpinner.visibility = View.GONE
                 speechModeRadioGroup.visibility = View.GONE
                 diarizationCheckBox.visibility = View.GONE
+                speechRunButton.visibility = View.GONE
                 micRecordButton.visibility = View.GONE
                 voiceGenerateButton.isEnabled = false
                 voiceResultTextView.text = ""
@@ -796,6 +806,7 @@ class MainActivity : AppCompatActivity() {
                 speechModelSpinner.visibility = View.GONE
                 speechModeRadioGroup.visibility = View.GONE
                 diarizationCheckBox.visibility = View.GONE
+                speechRunButton.visibility = View.GONE
                 micRecordButton.visibility = View.GONE
             }
         }
@@ -1499,7 +1510,7 @@ class MainActivity : AppCompatActivity() {
                         speechSample.releaseSpeech()
                         isInitialized = false
                         isDownloadingModel.set(false)
-                        classificationResultTextView.text = "Speech Results: --"
+                        classificationResultTextView.text = "Speech Result: --"
                         initializeAilia()
                     }
                 }
@@ -1512,22 +1523,24 @@ class MainActivity : AppCompatActivity() {
         speechModeRadioGroup.setOnCheckedChangeListener { _, checkedId ->
             when (checkedId) {
                 R.id.wavRadioButton -> {
+                    speechRunButton.visibility = View.VISIBLE
                     micRecordButton.visibility = View.GONE
                     stopMicRecording()
                     // Re-initialize in non-live mode
                     speechSample.releaseSpeech()
                     isInitialized = false
                     isDownloadingModel.set(false)
-                    classificationResultTextView.text = "Speech Results: --"
+                    classificationResultTextView.text = "Speech Result: --"
                     initializeAilia()
                 }
                 R.id.micRadioButton -> {
+                    speechRunButton.visibility = View.GONE
                     micRecordButton.visibility = View.VISIBLE
                     // Re-initialize in live mode
                     speechSample.releaseSpeech()
                     isInitialized = false
                     isDownloadingModel.set(false)
-                    classificationResultTextView.text = "Speech Results: (tap Record)"
+                    classificationResultTextView.text = "Speech Result: (tap Record)"
                     initializeAilia()
                 }
             }
@@ -1542,8 +1555,39 @@ class MainActivity : AppCompatActivity() {
             speechSample.releaseSpeech()
             isInitialized = false
             isDownloadingModel.set(false)
-            classificationResultTextView.text = "Speech Results: --"
+            classificationResultTextView.text = "Speech Result: --"
             initializeAilia()
+        }
+    }
+
+    private fun setupSpeechRunButton() {
+        speechRunButton.setOnClickListener {
+            if (!isInitialized) {
+                classificationResultTextView.text = "Speech model not ready"
+                return@setOnClickListener
+            }
+            if (isProcessing.get()) {
+                return@setOnClickListener
+            }
+            classificationResultTextView.text = "Speech Result: Processing..."
+            cameraExecutor.execute {
+                try {
+                    val audio: AudioUtil.WavFileData = AudioUtil().loadRawAudio(this.resources.openRawResource(R.raw.demo))
+                    val startTime = System.nanoTime()
+                    val text: String = speechSample.process(audio.audioData, audio.channels, audio.sampleRate)
+                    val endTime = System.nanoTime()
+                    val timeMs = (endTime - startTime) / 1000000
+                    runOnUiThread {
+                        classificationResultTextView.text = "Speech Result:\n$text"
+                        processingTimeTextView.text = "Processing Time: $timeMs ms"
+                    }
+                } catch (e: Exception) {
+                    Log.e("AILIA_Main", "Speech run error", e)
+                    runOnUiThread {
+                        classificationResultTextView.text = "Speech Result: Error - ${e.message}"
+                    }
+                }
+            }
         }
     }
 
@@ -1612,7 +1656,7 @@ class MainActivity : AppCompatActivity() {
                             accumulatedText.clear()
                             accumulatedText.append(text)
                             runOnUiThread {
-                                classificationResultTextView.text = "Speech Results (live):\n$text"
+                                classificationResultTextView.text = "Speech Result (live):\n$text"
                             }
                         }
                     }
@@ -1622,11 +1666,11 @@ class MainActivity : AppCompatActivity() {
                 val finalText = speechSample.finalizeLiveAudio()
                 runOnUiThread {
                     if (finalText.isNotEmpty()) {
-                        classificationResultTextView.text = "Speech Results:\n$finalText"
+                        classificationResultTextView.text = "Speech Result:\n$finalText"
                     } else if (accumulatedText.isNotEmpty()) {
-                        classificationResultTextView.text = "Speech Results:\n$accumulatedText"
+                        classificationResultTextView.text = "Speech Result:\n$accumulatedText"
                     } else {
-                        classificationResultTextView.text = "Speech Results: (no speech detected)"
+                        classificationResultTextView.text = "Speech Result: (no speech detected)"
                     }
                 }
             }
@@ -1666,6 +1710,7 @@ class MainActivity : AppCompatActivity() {
                 setupSpeechModelSpinner()
                 setupSpeechModeRadioGroup()
                 setupDiarizationCheckBox()
+                setupSpeechRunButton()
                 setupMicRecordButton()
                 initializeAilia()
             }
