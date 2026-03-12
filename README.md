@@ -28,7 +28,7 @@ git submodule update
 |Object Tracking|[ByteTrack](app/src/main/java/jp/axinc/ailia_kotlin/AiliaTrackerSample.kt)|ailia TFLite Runtime / ailia SDK (ONNX) + ailia Tracker|
 |Image Classification|[MobileNetV2 (TFLite)](app/src/main/java/jp/axinc/ailia_kotlin/AiliaTFLiteClassificationSample.kt) / [MobileNetV2 (ONNX)](app/src/main/java/jp/axinc/ailia_kotlin/AiliaOnnxClassificationSample.kt)|ailia TFLite Runtime / ailia SDK (ONNX)|
 |Tokenizer|[Whisper Tokenizer](app/src/main/java/jp/axinc/ailia_kotlin/AiliaTokenizerSample.kt)|ailia Tokenizer|
-|Speech to Text|[Whisper](app/src/main/java/jp/axinc/ailia_kotlin/AiliaSpeechSample.kt)|ailia AI Speech|
+|Speech to Text|[Whisper](app/src/main/java/jp/axinc/ailia_kotlin/AiliaSpeechSample.kt) / [SenseVoice](app/src/main/java/jp/axinc/ailia_kotlin/AiliaSpeechSample.kt)|ailia AI Speech|
 |Text to Speech|[GPT-SoVITS](app/src/main/java/jp/axinc/ailia_kotlin/AiliaVoiceSample.kt)|ailia AI Voice|
 |LLM|[Gemma 2 2B](app/src/main/java/jp/axinc/ailia_kotlin/AiliaLLMSample.kt)|ailia LLM|
 |Multimodal LLM|[Gemma 3 4B](app/src/main/java/jp/axinc/ailia_kotlin/AiliaMultimodalLLMSample.kt)|ailia LLM|

@@ -8,6 +8,9 @@ import android.graphics.BitmapFactory.Options
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
+import android.media.AudioFormat
+import android.media.AudioRecord
+import android.media.MediaRecorder
 import android.os.Bundle
 import android.util.Log
 import android.view.View
@@ -54,6 +57,14 @@ class MainActivity : AppCompatActivity() {
     private lateinit var llmOutputTextView: TextView
     private lateinit var llmStatusTextView: TextView
     private lateinit var multimodalImageView: ImageView
+    private lateinit var speechModelLabel: TextView
+    private lateinit var speechModelSpinner: Spinner
+    private lateinit var speechModeRadioGroup: RadioGroup
+    private lateinit var diarizationCheckBox: CheckBox
+    private lateinit var speechRunButton: Button
+    private lateinit var micRecordButton: Button
+    private lateinit var waveformImageView: ImageView
+    private lateinit var waveformInfoTextView: TextView
 
     private var poseEstimatorSample = AiliaPoseEstimatorSample()
     private var objectDetectionSample = AiliaTFLiteObjectDetectionSample()
@@ -85,6 +96,9 @@ class MainActivity : AppCompatActivity() {
     private var latestCameraBitmap: Bitmap? = null
 
     private var selectedVoiceModelType: VoiceModelType = VoiceModelType.GPT_SOVITS_V1
+    private var selectedSpeechModelType: SpeechModelType = SpeechModelType.WHISPER_TINY
+    private var audioRecord: AudioRecord? = null
+    private var isRecording = AtomicBoolean(false)
 
     enum class AlgorithmType {
         POSE_ESTIMATION,
@@ -100,7 +114,7 @@ class MainActivity : AppCompatActivity() {
 
     companion object {
         private const val REQUEST_CODE_PERMISSIONS = 10
-        private val REQUIRED_PERMISSIONS = arrayOf(Manifest.permission.CAMERA)
+        private val REQUIRED_PERMISSIONS = arrayOf(Manifest.permission.CAMERA, Manifest.permission.RECORD_AUDIO)
 
         init {
             System.loadLibrary("ailia")
@@ -159,6 +173,14 @@ class MainActivity : AppCompatActivity() {
         llmOutputTextView = findViewById(R.id.llmOutputTextView)
         llmStatusTextView = findViewById(R.id.llmStatusTextView)
         multimodalImageView = findViewById(R.id.multimodalImageView)
+        speechModelLabel = findViewById(R.id.speechModelLabel)
+        speechModelSpinner = findViewById(R.id.speechModelSpinner)
+        speechModeRadioGroup = findViewById(R.id.speechModeRadioGroup)
+        diarizationCheckBox = findViewById(R.id.diarizationCheckBox)
+        speechRunButton = findViewById(R.id.speechRunButton)
+        micRecordButton = findViewById(R.id.micRecordButton)
+        waveformImageView = findViewById(R.id.waveformImageView)
+        waveformInfoTextView = findViewById(R.id.waveformInfoTextView)
     }
 
     private fun setupModeSelection() {
@@ -489,7 +511,7 @@ class MainActivity : AppCompatActivity() {
                     speechSample.process(audio.audioData, audio.channels, audio.sampleRate)
                 val endTime = System.nanoTime()
                 runOnUiThread {
-                    classificationResultTextView.text = "Speech Results:\n$text"
+                    classificationResultTextView.text = "Speech Result:\n$text"
                 }
                 (endTime - startTime) / 1000000
             }
@@ -534,6 +556,14 @@ class MainActivity : AppCompatActivity() {
                 voiceStatusTextView.visibility = View.GONE
                 voiceGenerateButton.visibility = View.GONE
                 voiceResultTextView.visibility = View.GONE
+                speechModelLabel.visibility = View.GONE
+                speechModelSpinner.visibility = View.GONE
+                speechModeRadioGroup.visibility = View.GONE
+                diarizationCheckBox.visibility = View.GONE
+                speechRunButton.visibility = View.GONE
+                micRecordButton.visibility = View.GONE
+                waveformImageView.visibility = View.GONE
+                waveformInfoTextView.visibility = View.GONE
             }
 
             AlgorithmType.CLASSIFICATION -> {
@@ -564,6 +594,14 @@ class MainActivity : AppCompatActivity() {
                 voiceStatusTextView.visibility = View.GONE
                 voiceGenerateButton.visibility = View.GONE
                 voiceResultTextView.visibility = View.GONE
+                speechModelLabel.visibility = View.GONE
+                speechModelSpinner.visibility = View.GONE
+                speechModeRadioGroup.visibility = View.GONE
+                diarizationCheckBox.visibility = View.GONE
+                speechRunButton.visibility = View.GONE
+                micRecordButton.visibility = View.GONE
+                waveformImageView.visibility = View.GONE
+                waveformInfoTextView.visibility = View.GONE
             }
 
             AlgorithmType.TRACKING -> {
@@ -594,14 +632,24 @@ class MainActivity : AppCompatActivity() {
                 voiceStatusTextView.visibility = View.GONE
                 voiceGenerateButton.visibility = View.GONE
                 voiceResultTextView.visibility = View.GONE
+                speechModelLabel.visibility = View.GONE
+                speechModelSpinner.visibility = View.GONE
+                speechModeRadioGroup.visibility = View.GONE
+                diarizationCheckBox.visibility = View.GONE
+                speechRunButton.visibility = View.GONE
+                micRecordButton.visibility = View.GONE
+                waveformImageView.visibility = View.GONE
+                waveformInfoTextView.visibility = View.GONE
             }
 
             AlgorithmType.SPEECH_TO_TEXT -> {
+                val isMicMode = speechModeRadioGroup.checkedRadioButtonId == R.id.micRadioButton
                 modeRadioGroup.visibility = View.GONE
                 imageView.visibility = View.GONE
                 cameraPreviewView.visibility = View.GONE
                 resultScrollView.visibility = View.VISIBLE
                 classificationResultTextView.visibility = View.VISIBLE
+                classificationResultTextView.text = "Speech Result: --"
                 tokenizerInputEditText.visibility = View.GONE
                 tokenizerOutputTextView.visibility = View.GONE
                 trackingResultTextView.visibility = View.GONE
@@ -619,6 +667,15 @@ class MainActivity : AppCompatActivity() {
                 voiceStatusTextView.visibility = View.GONE
                 voiceGenerateButton.visibility = View.GONE
                 voiceResultTextView.visibility = View.GONE
+                // Speech-specific UI
+                speechModelLabel.visibility = View.VISIBLE
+                speechModelSpinner.visibility = View.VISIBLE
+                speechModeRadioGroup.visibility = View.VISIBLE
+                diarizationCheckBox.visibility = View.VISIBLE
+                speechRunButton.visibility = if (isMicMode) View.GONE else View.VISIBLE
+                micRecordButton.visibility = if (isMicMode) View.VISIBLE else View.GONE
+                waveformImageView.visibility = if (isMicMode) View.VISIBLE else View.GONE
+                waveformInfoTextView.visibility = if (isMicMode) View.VISIBLE else View.GONE
             }
             AlgorithmType.LLM -> {
                 modeRadioGroup.visibility = View.GONE
@@ -643,6 +700,14 @@ class MainActivity : AppCompatActivity() {
                 voiceStatusTextView.visibility = View.GONE
                 voiceGenerateButton.visibility = View.GONE
                 voiceResultTextView.visibility = View.GONE
+                speechModelLabel.visibility = View.GONE
+                speechModelSpinner.visibility = View.GONE
+                speechModeRadioGroup.visibility = View.GONE
+                diarizationCheckBox.visibility = View.GONE
+                speechRunButton.visibility = View.GONE
+                micRecordButton.visibility = View.GONE
+                waveformImageView.visibility = View.GONE
+                waveformInfoTextView.visibility = View.GONE
                 // モード切り替え時にリセット
                 llmInputEditText.setText("Hello!")
                 llmOutputTextView.text = ""
@@ -676,6 +741,14 @@ class MainActivity : AppCompatActivity() {
                 voiceStatusTextView.visibility = View.GONE
                 voiceGenerateButton.visibility = View.GONE
                 voiceResultTextView.visibility = View.GONE
+                speechModelLabel.visibility = View.GONE
+                speechModelSpinner.visibility = View.GONE
+                speechModeRadioGroup.visibility = View.GONE
+                diarizationCheckBox.visibility = View.GONE
+                speechRunButton.visibility = View.GONE
+                micRecordButton.visibility = View.GONE
+                waveformImageView.visibility = View.GONE
+                waveformInfoTextView.visibility = View.GONE
                 // モード切り替え時にリセット
                 llmInputEditText.setText("What is in this image?")
                 llmOutputTextView.text = ""
@@ -706,6 +779,14 @@ class MainActivity : AppCompatActivity() {
                 voiceStatusTextView.visibility = View.VISIBLE
                 voiceGenerateButton.visibility = View.VISIBLE
                 voiceResultTextView.visibility = View.VISIBLE
+                speechModelLabel.visibility = View.GONE
+                speechModelSpinner.visibility = View.GONE
+                speechModeRadioGroup.visibility = View.GONE
+                diarizationCheckBox.visibility = View.GONE
+                speechRunButton.visibility = View.GONE
+                micRecordButton.visibility = View.GONE
+                waveformImageView.visibility = View.GONE
+                waveformInfoTextView.visibility = View.GONE
                 voiceGenerateButton.isEnabled = false
                 voiceResultTextView.text = ""
                 voiceStatusTextView.text = "Status: Initializing..."
@@ -739,6 +820,14 @@ class MainActivity : AppCompatActivity() {
                 voiceStatusTextView.visibility = View.GONE
                 voiceGenerateButton.visibility = View.GONE
                 voiceResultTextView.visibility = View.GONE
+                speechModelLabel.visibility = View.GONE
+                speechModelSpinner.visibility = View.GONE
+                speechModeRadioGroup.visibility = View.GONE
+                diarizationCheckBox.visibility = View.GONE
+                speechRunButton.visibility = View.GONE
+                micRecordButton.visibility = View.GONE
+                waveformImageView.visibility = View.GONE
+                waveformInfoTextView.visibility = View.GONE
             }
         }
     }
@@ -772,6 +861,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun releaseCurrentAlgorithm() {
         try {
+            stopMicRecording()
             poseEstimatorSample.releasePoseEstimator()
             objectDetectionSample.releaseObjectDetection()
             classificationSample.releaseClassification()
@@ -1041,14 +1131,15 @@ class MainActivity : AppCompatActivity() {
                 AlgorithmType.SPEECH_TO_TEXT -> {
                     if (isDownloadingModel.get()) return
                     isDownloadingModel.set(true)
+                    val isMicMode = speechModeRadioGroup.checkedRadioButtonId == R.id.micRadioButton
                     runOnUiThread {
-                        processingTimeTextView.text = "Downloading speech model..."
+                        processingTimeTextView.text = "Downloading speech model (${selectedSpeechModelType.displayName})..."
                     }
-                    Log.i("AILIA_Main", "Speech: submitting download task to cameraExecutor")
+                    Log.i("AILIA_Main", "Speech: submitting download task to cameraExecutor, model=${selectedSpeechModelType.displayName}, micMode=$isMicMode")
                     cameraExecutor.execute {
                         Log.i("AILIA_Main", "Speech: cameraExecutor task started")
                         try {
-                            val downloaded = speechSample.downloadModel(object : AiliaSpeechSample.DownloadListener {
+                            val downloaded = speechSample.downloadModel(selectedSpeechModelType, object : AiliaSpeechSample.DownloadListener {
                                 override fun onProgress(fileName: String, bytesDownloaded: Long, totalBytes: Long) {
                                     val percent = if (totalBytes > 0) (bytesDownloaded * 100 / totalBytes) else 0
                                     runOnUiThread {
@@ -1064,15 +1155,17 @@ class MainActivity : AppCompatActivity() {
                             })
                             Log.i("AILIA_Main", "Speech: download result=$downloaded")
                             if (downloaded) {
-                                Log.i("AILIA_Main", "Speech: initializing with envId=$selectedEnvId")
-                                val success = speechSample.initializeSpeech(selectedEnvId)
+                                Log.i("AILIA_Main", "Speech: initializing with envId=$selectedEnvId, liveMode=$isMicMode")
+                                val success = speechSample.initializeSpeech(selectedEnvId, liveMode = isMicMode)
                                 Log.i("AILIA_Main", "Speech: initialization result=$success")
                                 isInitialized = success
                                 isDownloadingModel.set(false)
                                 runOnUiThread {
                                     if (success) {
-                                        processingTimeTextView.text = "Speech model ready"
-                                        processImageMode()
+                                        processingTimeTextView.text = "${selectedSpeechModelType.displayName} ready"
+                                        if (!isMicMode) {
+                                            processImageMode()
+                                        }
                                     } else {
                                         processingTimeTextView.text = "Failed to initialize speech model"
                                     }
@@ -1413,12 +1506,344 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun setupSpeechModelSpinner() {
+        val speechModels = SpeechModelType.values().map { it.displayName }.toTypedArray()
+        val adapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, speechModels)
+        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+        speechModelSpinner.adapter = adapter
+
+        // Set current selection
+        val currentIndex = SpeechModelType.values().indexOf(selectedSpeechModelType)
+        if (currentIndex >= 0) {
+            speechModelSpinner.setSelection(currentIndex)
+        }
+
+        speechModelSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
+                val newType = SpeechModelType.values()[position]
+                if (newType != selectedSpeechModelType) {
+                    selectedSpeechModelType = newType
+                    // Stop recording if active
+                    stopMicRecording()
+                    // Re-download and re-initialize with new model
+                    if (currentAlgorithm == AlgorithmType.SPEECH_TO_TEXT) {
+                        speechSample.releaseSpeech()
+                        isInitialized = false
+                        isDownloadingModel.set(false)
+                        classificationResultTextView.text = "Speech Result: --"
+                        initializeAilia()
+                    }
+                }
+            }
+            override fun onNothingSelected(parent: AdapterView<*>?) {}
+        }
+    }
+
+    private fun setupSpeechModeRadioGroup() {
+        speechModeRadioGroup.setOnCheckedChangeListener { _, checkedId ->
+            when (checkedId) {
+                R.id.wavRadioButton -> {
+                    speechRunButton.visibility = View.VISIBLE
+                    micRecordButton.visibility = View.GONE
+                    waveformImageView.visibility = View.GONE
+                    waveformInfoTextView.visibility = View.GONE
+                    stopMicRecording()
+                    // Re-initialize in non-live mode
+                    speechSample.releaseSpeech()
+                    isInitialized = false
+                    isDownloadingModel.set(false)
+                    classificationResultTextView.text = "Speech Result: --"
+                    initializeAilia()
+                }
+                R.id.micRadioButton -> {
+                    speechRunButton.visibility = View.GONE
+                    micRecordButton.visibility = View.VISIBLE
+                    waveformImageView.visibility = View.VISIBLE
+                    waveformInfoTextView.visibility = View.VISIBLE
+                    // Re-initialize in live mode
+                    speechSample.releaseSpeech()
+                    isInitialized = false
+                    isDownloadingModel.set(false)
+                    classificationResultTextView.text = "Speech Result: (tap Record)"
+                    initializeAilia()
+                }
+            }
+        }
+    }
+
+    private fun setupDiarizationCheckBox() {
+        diarizationCheckBox.setOnCheckedChangeListener { _, isChecked ->
+            speechSample.diarizationEnabled = isChecked
+            // Re-initialize to apply diarization setting
+            stopMicRecording()
+            speechSample.releaseSpeech()
+            isInitialized = false
+            isDownloadingModel.set(false)
+            classificationResultTextView.text = "Speech Result: --"
+            initializeAilia()
+        }
+    }
+
+    private fun setupSpeechRunButton() {
+        speechRunButton.setOnClickListener {
+            if (!isInitialized) {
+                classificationResultTextView.text = "Speech model not ready"
+                return@setOnClickListener
+            }
+            if (isProcessing.get()) {
+                return@setOnClickListener
+            }
+            classificationResultTextView.text = "Speech Result: Processing..."
+            cameraExecutor.execute {
+                try {
+                    val audio: AudioUtil.WavFileData = AudioUtil().loadRawAudio(this.resources.openRawResource(R.raw.demo))
+                    val startTime = System.nanoTime()
+                    val text: String = speechSample.process(audio.audioData, audio.channels, audio.sampleRate)
+                    val endTime = System.nanoTime()
+                    val timeMs = (endTime - startTime) / 1000000
+                    runOnUiThread {
+                        classificationResultTextView.text = "Speech Result:\n$text"
+                        processingTimeTextView.text = "Processing Time: $timeMs ms"
+                    }
+                } catch (e: Exception) {
+                    Log.e("AILIA_Main", "Speech run error", e)
+                    runOnUiThread {
+                        classificationResultTextView.text = "Speech Result: Error - ${e.message}"
+                    }
+                }
+            }
+        }
+    }
+
+    private fun setupMicRecordButton() {
+        micRecordButton.setOnClickListener {
+            if (isRecording.get()) {
+                stopMicRecording()
+            } else {
+                startMicRecording()
+            }
+        }
+    }
+
+    private fun startMicRecording() {
+        if (!isInitialized) {
+            classificationResultTextView.text = "Speech model not ready"
+            return
+        }
+
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.RECORD_AUDIO), REQUEST_CODE_PERMISSIONS)
+            return
+        }
+
+        val sampleRate = 16000
+        val channelConfig = AudioFormat.CHANNEL_IN_MONO
+        val audioFormat = AudioFormat.ENCODING_PCM_FLOAT
+        // Read 1 second of audio per chunk (matching WAV test chunk size)
+        val readChunkSize = sampleRate
+        // AudioRecord internal buffer: at least 2 seconds
+        val audioRecordBufferBytes = readChunkSize * 4 * 2
+
+        try {
+            audioRecord = AudioRecord(
+                MediaRecorder.AudioSource.MIC,
+                sampleRate,
+                channelConfig,
+                audioFormat,
+                audioRecordBufferBytes
+            )
+
+            if (audioRecord?.state != AudioRecord.STATE_INITIALIZED) {
+                classificationResultTextView.text = "Failed to initialize AudioRecord"
+                audioRecord = null
+                return
+            }
+
+            audioRecord?.startRecording()
+            isRecording.set(true)
+            micRecordButton.text = "Stop"
+            classificationResultTextView.text = "Recording..."
+
+            // Start reading audio data on background thread
+            cameraExecutor.execute {
+                val floatBuffer = FloatArray(readChunkSize)
+                val accumulatedText = StringBuilder()
+
+                while (isRecording.get()) {
+                    val readResult = audioRecord?.read(floatBuffer, 0, floatBuffer.size, AudioRecord.READ_BLOCKING) ?: -1
+                    if (readResult > 0) {
+                        // Log audio stats for debugging
+                        var minV = Float.MAX_VALUE
+                        var maxV = -Float.MAX_VALUE
+                        var sumSq = 0.0
+                        for (i in 0 until readResult) {
+                            val v = floatBuffer[i]
+                            if (v < minV) minV = v
+                            if (v > maxV) maxV = v
+                            sumSq += v * v
+                        }
+                        val rmsV = Math.sqrt(sumSq / readResult)
+                        Log.i("AILIA_Main", "Mic PCM: samples=$readResult min=${"%.6f".format(minV)} max=${"%.6f".format(maxV)} rms=${"%.6f".format(rmsV)}")
+
+                        // Draw waveform for debugging (PCM_FLOAT is already [-1.0, 1.0])
+                        drawWaveform(floatBuffer, readResult)
+
+                        // Guard against speech being released during recording
+                        if (!isInitialized) break
+                        try {
+                            val text = speechSample.pushLiveAudio(floatBuffer.copyOf(readResult), 1, sampleRate)
+                            if (text.isNotEmpty()) {
+                                accumulatedText.clear()
+                                accumulatedText.append(text)
+                                runOnUiThread {
+                                    classificationResultTextView.text = "Speech Result (live):\n$text"
+                                }
+                            }
+                        } catch (e: Exception) {
+                            Log.e("AILIA_Main", "pushLiveAudio error (speech may have been released): ${e.message}")
+                            break
+                        }
+                    }
+                }
+
+                // Finalize when recording stops (guard against speech being released)
+                try {
+                    if (isInitialized) {
+                        val finalText = speechSample.finalizeLiveAudio()
+                        runOnUiThread {
+                            if (finalText.isNotEmpty()) {
+                                classificationResultTextView.text = "Speech Result:\n$finalText"
+                            } else if (accumulatedText.isNotEmpty()) {
+                                classificationResultTextView.text = "Speech Result:\n$accumulatedText"
+                            } else {
+                                classificationResultTextView.text = "Speech Result: (no speech detected)"
+                            }
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.e("AILIA_Main", "finalizeLiveAudio error (speech may have been released): ${e.message}")
+                }
+            }
+        } catch (e: SecurityException) {
+            Log.e("AILIA_Main", "SecurityException starting mic recording: ${e.message}")
+            classificationResultTextView.text = "Microphone permission denied"
+        } catch (e: Exception) {
+            Log.e("AILIA_Main", "Error starting mic recording: ${e.message}")
+            classificationResultTextView.text = "Error starting recording: ${e.message}"
+        }
+    }
+
+    private fun stopMicRecording() {
+        if (isRecording.get()) {
+            isRecording.set(false)
+            try {
+                audioRecord?.stop()
+            } catch (e: Exception) {
+                Log.e("AILIA_Main", "Error stopping AudioRecord: ${e.message}")
+            }
+            try {
+                audioRecord?.release()
+            } catch (e: Exception) {
+                Log.e("AILIA_Main", "Error releasing AudioRecord: ${e.message}")
+            }
+            audioRecord = null
+            runOnUiThread {
+                micRecordButton.text = "Record"
+            }
+        }
+    }
+
+    /**
+     * Draws waveform from float PCM data [-1.0, 1.0] and shows debug info (min, max, RMS).
+     */
+    private fun drawWaveform(floatBuffer: FloatArray, readSamples: Int) {
+        val width = 800
+        val height = 240
+        val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bitmap)
+
+        // Background
+        canvas.drawColor(Color.parseColor("#1A1A2E"))
+
+        // Center line
+        val centerLinePaint = Paint().apply {
+            color = Color.parseColor("#444466")
+            strokeWidth = 1f
+        }
+        canvas.drawLine(0f, height / 2f, width.toFloat(), height / 2f, centerLinePaint)
+
+        // Waveform
+        val waveformPaint = Paint().apply {
+            color = Color.parseColor("#00FF88")
+            strokeWidth = 1.5f
+            isAntiAlias = true
+        }
+
+        val step = maxOf(1, readSamples / width)
+        val centerY = height / 2f
+        var prevX = 0f
+        var prevY = centerY
+
+        // Calculate min, max, RMS
+        var minVal = Float.MAX_VALUE
+        var maxVal = Float.MIN_VALUE
+        var sumSquared = 0.0
+
+        for (i in 0 until readSamples) {
+            val v = floatBuffer[i]
+            if (v < minVal) minVal = v
+            if (v > maxVal) maxVal = v
+            sumSquared += v * v
+        }
+        val rms = Math.sqrt(sumSquared / readSamples).toFloat()
+
+        // Draw waveform
+        for (x in 0 until width) {
+            val sampleIndex = x * step
+            if (sampleIndex >= readSamples) break
+            val sample = floatBuffer[sampleIndex]
+            val y = centerY - sample * centerY * 0.9f
+            if (x > 0) {
+                canvas.drawLine(prevX, prevY, x.toFloat(), y, waveformPaint)
+            }
+            prevX = x.toFloat()
+            prevY = y
+        }
+
+        // RMS bar
+        val rmsPaint = Paint().apply {
+            color = Color.parseColor("#FF6644")
+            strokeWidth = 2f
+        }
+        val rmsY = centerY - rms * centerY * 0.9f
+        canvas.drawLine(0f, rmsY, width.toFloat(), rmsY, rmsPaint)
+        val rmsYNeg = centerY + rms * centerY * 0.9f
+        canvas.drawLine(0f, rmsYNeg, width.toFloat(), rmsYNeg, rmsPaint)
+
+        runOnUiThread {
+            waveformImageView.setImageBitmap(bitmap)
+            waveformInfoTextView.text = "Min=%.4f  Max=%.4f  RMS=%.4f  Samples=%d".format(minVal, maxVal, rms, readSamples)
+        }
+    }
+
     private fun processImageMode() {
+        // Speech to Text uses speech model spinner and Wav/Mic mode
+        if (currentAlgorithm == AlgorithmType.SPEECH_TO_TEXT) {
+            if (!isInitialized) {
+                setupSpeechModelSpinner()
+                setupSpeechModeRadioGroup()
+                setupDiarizationCheckBox()
+                setupSpeechRunButton()
+                setupMicRecordButton()
+                initializeAilia()
+            }
+            return
+        }
+
         // 非同期モデルダウンロードが必要なモード
-        if ((selectedRuntime == "ONNX" && (currentAlgorithm == AlgorithmType.OBJECT_DETECTION ||
+        if (selectedRuntime == "ONNX" && (currentAlgorithm == AlgorithmType.OBJECT_DETECTION ||
                     currentAlgorithm == AlgorithmType.CLASSIFICATION ||
-                    currentAlgorithm == AlgorithmType.TRACKING)) ||
-            currentAlgorithm == AlgorithmType.SPEECH_TO_TEXT) {
+                    currentAlgorithm == AlgorithmType.TRACKING)) {
             if (!isInitialized) {
                 initializeAilia()
                 return
@@ -1720,6 +2145,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
+        stopMicRecording()
         releaseCurrentAlgorithm()
         cameraExecutor.shutdown()
     }
