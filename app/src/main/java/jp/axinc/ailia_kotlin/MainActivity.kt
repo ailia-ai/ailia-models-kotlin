@@ -69,7 +69,7 @@ class MainActivity : AppCompatActivity() {
     private var poseEstimatorSample = AiliaPoseEstimatorSample()
     private var objectDetectionSample = AiliaTFLiteObjectDetectionSample()
     private var classificationSample = AiliaTFLiteClassificationSample()
-    private var tokenizerSample = AiliaTokenizerSample()
+    private var miniLMv2Sample = AiliaMiniLMv2Sample()
     private var trackerSample = AiliaTrackerSample()
     private var speechSample = AiliaSpeechSample()
     private var voiceSample = AiliaVoiceSample()
@@ -133,6 +133,7 @@ class MainActivity : AppCompatActivity() {
         val modelDir = (getExternalFilesDir(null) ?: filesDir).absolutePath
         onnxObjectDetectionSample.modelDir = modelDir
         onnxClassificationSample.modelDir = modelDir
+        miniLMv2Sample.modelDir = modelDir
         speechSample.modelDir = modelDir
         voiceSample.modelDir = modelDir
 
@@ -302,7 +303,7 @@ class MainActivity : AppCompatActivity() {
                 setupOnnxEnvSpinner(useBlas = false)
             }
 
-            AlgorithmType.SPEECH_TO_TEXT, AlgorithmType.TEXT_TO_SPEECH -> {
+            AlgorithmType.SPEECH_TO_TEXT, AlgorithmType.TEXT_TO_SPEECH, AlgorithmType.TOKENIZE -> {
                 setupOnnxEnvSpinner(useBlas = true)
             }
 
@@ -463,11 +464,12 @@ class MainActivity : AppCompatActivity() {
 
             AlgorithmType.TOKENIZE -> {
                 val inputText =
-                    tokenizerInputEditText.text.toString().ifEmpty { "Hello world from ailia!" }
-                val time = tokenizerSample.processTokenization(inputText)
-                val tokens = tokenizerSample.getLastTokenizationResult()
+                    tokenizerInputEditText.text.toString().ifEmpty { "今日、新しいiPhoneが発売されました" }
+                val labels = listOf("スマートフォン", "エンタメ", "スポーツ", "政治", "科学")
+                val time = miniLMv2Sample.predict(inputText, labels)
+                val result = miniLMv2Sample.getLastResult()
                 runOnUiThread {
-                    tokenizerOutputTextView.text = "Tokens: $tokens"
+                    tokenizerOutputTextView.text = "Result:\n$result"
                 }
                 time
             }
@@ -867,7 +869,7 @@ class MainActivity : AppCompatActivity() {
             classificationSample.releaseClassification()
             onnxObjectDetectionSample.releaseObjectDetection()
             onnxClassificationSample.releaseClassification()
-            tokenizerSample.releaseTokenizer()
+            miniLMv2Sample.release()
             trackerSample.releaseTracker()
             speechSample.releaseSpeech()
             voiceSample.releaseVoice()
@@ -1057,7 +1059,54 @@ class MainActivity : AppCompatActivity() {
                 }
 
                 AlgorithmType.TOKENIZE -> {
-                    isInitialized = tokenizerSample.initializeTokenizer()
+                    if (isDownloadingModel.get()) return
+                    isDownloadingModel.set(true)
+                    runOnUiThread {
+                        processingTimeTextView.text = "Downloading MiniLMv2 model..."
+                    }
+                    Log.i("AILIA_Main", "MiniLMv2: submitting download task to cameraExecutor")
+                    cameraExecutor.execute {
+                        try {
+                            val downloaded = miniLMv2Sample.downloadModel(object : AiliaMiniLMv2Sample.DownloadListener {
+                                override fun onProgress(fileName: String, bytesDownloaded: Long, totalBytes: Long) {
+                                    val percent = if (totalBytes > 0) (bytesDownloaded * 100 / totalBytes) else 0
+                                    runOnUiThread {
+                                        processingTimeTextView.text = "Downloading $fileName... $percent%"
+                                    }
+                                }
+                                override fun onComplete() {}
+                                override fun onError(error: String) {
+                                    runOnUiThread {
+                                        processingTimeTextView.text = "Download error: $error"
+                                    }
+                                }
+                            })
+                            Log.i("AILIA_Main", "MiniLMv2: download result=$downloaded")
+                            if (downloaded) {
+                                val success = miniLMv2Sample.initialize(selectedEnvId)
+                                Log.i("AILIA_Main", "MiniLMv2: initialization result=$success")
+                                isInitialized = success
+                                isDownloadingModel.set(false)
+                                runOnUiThread {
+                                    if (success) {
+                                        processingTimeTextView.text = "MiniLMv2 ready"
+                                        processImageMode()
+                                    } else {
+                                        processingTimeTextView.text = "Failed to initialize MiniLMv2"
+                                    }
+                                }
+                            } else {
+                                isDownloadingModel.set(false)
+                            }
+                        } catch (e: Exception) {
+                            Log.e("AILIA_Main", "MiniLMv2: exception in cameraExecutor", e)
+                            isDownloadingModel.set(false)
+                            runOnUiThread {
+                                processingTimeTextView.text = "Error: ${e.message}"
+                            }
+                        }
+                    }
+                    return
                 }
 
                 AlgorithmType.TRACKING -> {
@@ -1838,6 +1887,14 @@ class MainActivity : AppCompatActivity() {
                 initializeAilia()
             }
             return
+        }
+
+        // TOKENIZE (MiniLMv2) is async download + init
+        if (currentAlgorithm == AlgorithmType.TOKENIZE) {
+            if (!isInitialized) {
+                initializeAilia()
+                return
+            }
         }
 
         // 非同期モデルダウンロードが必要なモード
