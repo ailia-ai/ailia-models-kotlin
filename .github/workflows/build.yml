@@ -27,15 +27,18 @@ jobs:
     - name: Build debug APK
       run: ./gradlew assembleDebug
 
+    - name: Rename APK
+      run: mv app/build/outputs/apk/debug/app-debug.apk app/build/outputs/apk/debug/ailia-models-kotlin.apk
+
     - name: Upload APK artifact
       uses: actions/upload-artifact@v4
       with:
-        name: app-debug
-        path: app/build/outputs/apk/debug/app-debug.apk
+        name: ailia-models-kotlin
+        path: app/build/outputs/apk/debug/ailia-models-kotlin.apk
 
     - name: Create Release
       if: startsWith(github.ref, 'refs/tags/v')
       uses: softprops/action-gh-release@v2
       with:
-        files: app/build/outputs/apk/debug/app-debug.apk
+        files: app/build/outputs/apk/debug/ailia-models-kotlin.apk
         generate_release_notes: true
