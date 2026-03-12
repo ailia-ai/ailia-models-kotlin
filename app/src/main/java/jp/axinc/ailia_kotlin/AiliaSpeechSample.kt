@@ -49,10 +49,9 @@ enum class SpeechModelType(
         "SenseVoice Small",
         "https://storage.googleapis.com/ailia-models/sensevoice/sensevoice_small.onnx",
         "sensevoice_small.onnx",
-        "",
-        "",
-        AiliaSpeech.AILIA_SPEECH_MODEL_TYPE_SENSEVOICE_SMALL,
-        needsDecoder = false
+        "https://storage.googleapis.com/ailia-models/sensevoice/sensevoice_small.model",
+        "sensevoice_small.model",
+        AiliaSpeech.AILIA_SPEECH_MODEL_TYPE_SENSEVOICE_SMALL
     )
 }
 
