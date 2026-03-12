@@ -63,6 +63,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var diarizationCheckBox: CheckBox
     private lateinit var speechRunButton: Button
     private lateinit var micRecordButton: Button
+    private lateinit var waveformImageView: ImageView
+    private lateinit var waveformInfoTextView: TextView
 
     private var poseEstimatorSample = AiliaPoseEstimatorSample()
     private var objectDetectionSample = AiliaTFLiteObjectDetectionSample()
@@ -177,6 +179,8 @@ class MainActivity : AppCompatActivity() {
         diarizationCheckBox = findViewById(R.id.diarizationCheckBox)
         speechRunButton = findViewById(R.id.speechRunButton)
         micRecordButton = findViewById(R.id.micRecordButton)
+        waveformImageView = findViewById(R.id.waveformImageView)
+        waveformInfoTextView = findViewById(R.id.waveformInfoTextView)
     }
 
     private fun setupModeSelection() {
@@ -558,6 +562,8 @@ class MainActivity : AppCompatActivity() {
                 diarizationCheckBox.visibility = View.GONE
                 speechRunButton.visibility = View.GONE
                 micRecordButton.visibility = View.GONE
+                waveformImageView.visibility = View.GONE
+                waveformInfoTextView.visibility = View.GONE
             }
 
             AlgorithmType.CLASSIFICATION -> {
@@ -594,6 +600,8 @@ class MainActivity : AppCompatActivity() {
                 diarizationCheckBox.visibility = View.GONE
                 speechRunButton.visibility = View.GONE
                 micRecordButton.visibility = View.GONE
+                waveformImageView.visibility = View.GONE
+                waveformInfoTextView.visibility = View.GONE
             }
 
             AlgorithmType.TRACKING -> {
@@ -630,6 +638,8 @@ class MainActivity : AppCompatActivity() {
                 diarizationCheckBox.visibility = View.GONE
                 speechRunButton.visibility = View.GONE
                 micRecordButton.visibility = View.GONE
+                waveformImageView.visibility = View.GONE
+                waveformInfoTextView.visibility = View.GONE
             }
 
             AlgorithmType.SPEECH_TO_TEXT -> {
@@ -664,6 +674,8 @@ class MainActivity : AppCompatActivity() {
                 diarizationCheckBox.visibility = View.VISIBLE
                 speechRunButton.visibility = if (isMicMode) View.GONE else View.VISIBLE
                 micRecordButton.visibility = if (isMicMode) View.VISIBLE else View.GONE
+                waveformImageView.visibility = if (isMicMode) View.VISIBLE else View.GONE
+                waveformInfoTextView.visibility = if (isMicMode) View.VISIBLE else View.GONE
             }
             AlgorithmType.LLM -> {
                 modeRadioGroup.visibility = View.GONE
@@ -694,6 +706,8 @@ class MainActivity : AppCompatActivity() {
                 diarizationCheckBox.visibility = View.GONE
                 speechRunButton.visibility = View.GONE
                 micRecordButton.visibility = View.GONE
+                waveformImageView.visibility = View.GONE
+                waveformInfoTextView.visibility = View.GONE
                 // モード切り替え時にリセット
                 llmInputEditText.setText("Hello!")
                 llmOutputTextView.text = ""
@@ -733,6 +747,8 @@ class MainActivity : AppCompatActivity() {
                 diarizationCheckBox.visibility = View.GONE
                 speechRunButton.visibility = View.GONE
                 micRecordButton.visibility = View.GONE
+                waveformImageView.visibility = View.GONE
+                waveformInfoTextView.visibility = View.GONE
                 // モード切り替え時にリセット
                 llmInputEditText.setText("What is in this image?")
                 llmOutputTextView.text = ""
@@ -769,6 +785,8 @@ class MainActivity : AppCompatActivity() {
                 diarizationCheckBox.visibility = View.GONE
                 speechRunButton.visibility = View.GONE
                 micRecordButton.visibility = View.GONE
+                waveformImageView.visibility = View.GONE
+                waveformInfoTextView.visibility = View.GONE
                 voiceGenerateButton.isEnabled = false
                 voiceResultTextView.text = ""
                 voiceStatusTextView.text = "Status: Initializing..."
@@ -808,6 +826,8 @@ class MainActivity : AppCompatActivity() {
                 diarizationCheckBox.visibility = View.GONE
                 speechRunButton.visibility = View.GONE
                 micRecordButton.visibility = View.GONE
+                waveformImageView.visibility = View.GONE
+                waveformInfoTextView.visibility = View.GONE
             }
         }
     }
@@ -1525,6 +1545,8 @@ class MainActivity : AppCompatActivity() {
                 R.id.wavRadioButton -> {
                     speechRunButton.visibility = View.VISIBLE
                     micRecordButton.visibility = View.GONE
+                    waveformImageView.visibility = View.GONE
+                    waveformInfoTextView.visibility = View.GONE
                     stopMicRecording()
                     // Re-initialize in non-live mode
                     speechSample.releaseSpeech()
@@ -1536,6 +1558,8 @@ class MainActivity : AppCompatActivity() {
                 R.id.micRadioButton -> {
                     speechRunButton.visibility = View.GONE
                     micRecordButton.visibility = View.VISIBLE
+                    waveformImageView.visibility = View.VISIBLE
+                    waveformInfoTextView.visibility = View.VISIBLE
                     // Re-initialize in live mode
                     speechSample.releaseSpeech()
                     isInitialized = false
@@ -1614,8 +1638,11 @@ class MainActivity : AppCompatActivity() {
 
         val sampleRate = 16000
         val channelConfig = AudioFormat.CHANNEL_IN_MONO
-        val audioFormat = AudioFormat.ENCODING_PCM_16BIT
-        val bufferSize = AudioRecord.getMinBufferSize(sampleRate, channelConfig, audioFormat)
+        val audioFormat = AudioFormat.ENCODING_PCM_FLOAT
+        // Read 1 second of audio per chunk (matching WAV test chunk size)
+        val readChunkSize = sampleRate
+        // AudioRecord internal buffer: at least 2 seconds
+        val audioRecordBufferBytes = readChunkSize * 4 * 2
 
         try {
             audioRecord = AudioRecord(
@@ -1623,7 +1650,7 @@ class MainActivity : AppCompatActivity() {
                 sampleRate,
                 channelConfig,
                 audioFormat,
-                bufferSize * 2
+                audioRecordBufferBytes
             )
 
             if (audioRecord?.state != AudioRecord.STATE_INITIALIZED) {
@@ -1639,39 +1666,62 @@ class MainActivity : AppCompatActivity() {
 
             // Start reading audio data on background thread
             cameraExecutor.execute {
-                val buffer = ShortArray(bufferSize)
+                val floatBuffer = FloatArray(readChunkSize)
                 val accumulatedText = StringBuilder()
 
                 while (isRecording.get()) {
-                    val readResult = audioRecord?.read(buffer, 0, buffer.size) ?: -1
+                    val readResult = audioRecord?.read(floatBuffer, 0, floatBuffer.size, AudioRecord.READ_BLOCKING) ?: -1
                     if (readResult > 0) {
-                        // Convert Short to Float [-1.0, 1.0]
-                        val floatBuffer = FloatArray(readResult)
+                        // Log audio stats for debugging
+                        var minV = Float.MAX_VALUE
+                        var maxV = -Float.MAX_VALUE
+                        var sumSq = 0.0
                         for (i in 0 until readResult) {
-                            floatBuffer[i] = buffer[i].toFloat() / Short.MAX_VALUE.toFloat()
+                            val v = floatBuffer[i]
+                            if (v < minV) minV = v
+                            if (v > maxV) maxV = v
+                            sumSq += v * v
                         }
+                        val rmsV = Math.sqrt(sumSq / readResult)
+                        Log.i("AILIA_Main", "Mic PCM: samples=$readResult min=${"%.6f".format(minV)} max=${"%.6f".format(maxV)} rms=${"%.6f".format(rmsV)}")
 
-                        val text = speechSample.pushLiveAudio(floatBuffer, 1, sampleRate)
-                        if (text.isNotEmpty()) {
-                            accumulatedText.clear()
-                            accumulatedText.append(text)
-                            runOnUiThread {
-                                classificationResultTextView.text = "Speech Result (live):\n$text"
+                        // Draw waveform for debugging (PCM_FLOAT is already [-1.0, 1.0])
+                        drawWaveform(floatBuffer, readResult)
+
+                        // Guard against speech being released during recording
+                        if (!isInitialized) break
+                        try {
+                            val text = speechSample.pushLiveAudio(floatBuffer.copyOf(readResult), 1, sampleRate)
+                            if (text.isNotEmpty()) {
+                                accumulatedText.clear()
+                                accumulatedText.append(text)
+                                runOnUiThread {
+                                    classificationResultTextView.text = "Speech Result (live):\n$text"
+                                }
                             }
+                        } catch (e: Exception) {
+                            Log.e("AILIA_Main", "pushLiveAudio error (speech may have been released): ${e.message}")
+                            break
                         }
                     }
                 }
 
-                // Finalize when recording stops
-                val finalText = speechSample.finalizeLiveAudio()
-                runOnUiThread {
-                    if (finalText.isNotEmpty()) {
-                        classificationResultTextView.text = "Speech Result:\n$finalText"
-                    } else if (accumulatedText.isNotEmpty()) {
-                        classificationResultTextView.text = "Speech Result:\n$accumulatedText"
-                    } else {
-                        classificationResultTextView.text = "Speech Result: (no speech detected)"
+                // Finalize when recording stops (guard against speech being released)
+                try {
+                    if (isInitialized) {
+                        val finalText = speechSample.finalizeLiveAudio()
+                        runOnUiThread {
+                            if (finalText.isNotEmpty()) {
+                                classificationResultTextView.text = "Speech Result:\n$finalText"
+                            } else if (accumulatedText.isNotEmpty()) {
+                                classificationResultTextView.text = "Speech Result:\n$accumulatedText"
+                            } else {
+                                classificationResultTextView.text = "Speech Result: (no speech detected)"
+                            }
+                        }
                     }
+                } catch (e: Exception) {
+                    Log.e("AILIA_Main", "finalizeLiveAudio error (speech may have been released): ${e.message}")
                 }
             }
         } catch (e: SecurityException) {
@@ -1700,6 +1750,79 @@ class MainActivity : AppCompatActivity() {
             runOnUiThread {
                 micRecordButton.text = "Record"
             }
+        }
+    }
+
+    /**
+     * Draws waveform from float PCM data [-1.0, 1.0] and shows debug info (min, max, RMS).
+     */
+    private fun drawWaveform(floatBuffer: FloatArray, readSamples: Int) {
+        val width = 800
+        val height = 240
+        val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bitmap)
+
+        // Background
+        canvas.drawColor(Color.parseColor("#1A1A2E"))
+
+        // Center line
+        val centerLinePaint = Paint().apply {
+            color = Color.parseColor("#444466")
+            strokeWidth = 1f
+        }
+        canvas.drawLine(0f, height / 2f, width.toFloat(), height / 2f, centerLinePaint)
+
+        // Waveform
+        val waveformPaint = Paint().apply {
+            color = Color.parseColor("#00FF88")
+            strokeWidth = 1.5f
+            isAntiAlias = true
+        }
+
+        val step = maxOf(1, readSamples / width)
+        val centerY = height / 2f
+        var prevX = 0f
+        var prevY = centerY
+
+        // Calculate min, max, RMS
+        var minVal = Float.MAX_VALUE
+        var maxVal = Float.MIN_VALUE
+        var sumSquared = 0.0
+
+        for (i in 0 until readSamples) {
+            val v = floatBuffer[i]
+            if (v < minVal) minVal = v
+            if (v > maxVal) maxVal = v
+            sumSquared += v * v
+        }
+        val rms = Math.sqrt(sumSquared / readSamples).toFloat()
+
+        // Draw waveform
+        for (x in 0 until width) {
+            val sampleIndex = x * step
+            if (sampleIndex >= readSamples) break
+            val sample = floatBuffer[sampleIndex]
+            val y = centerY - sample * centerY * 0.9f
+            if (x > 0) {
+                canvas.drawLine(prevX, prevY, x.toFloat(), y, waveformPaint)
+            }
+            prevX = x.toFloat()
+            prevY = y
+        }
+
+        // RMS bar
+        val rmsPaint = Paint().apply {
+            color = Color.parseColor("#FF6644")
+            strokeWidth = 2f
+        }
+        val rmsY = centerY - rms * centerY * 0.9f
+        canvas.drawLine(0f, rmsY, width.toFloat(), rmsY, rmsPaint)
+        val rmsYNeg = centerY + rms * centerY * 0.9f
+        canvas.drawLine(0f, rmsYNeg, width.toFloat(), rmsYNeg, rmsPaint)
+
+        runOnUiThread {
+            waveformImageView.setImageBitmap(bitmap)
+            waveformInfoTextView.text = "Min=%.4f  Max=%.4f  RMS=%.4f  Samples=%d".format(minVal, maxVal, rms, readSamples)
         }
     }
 

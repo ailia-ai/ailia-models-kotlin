@@ -243,6 +243,26 @@
                 android:text="Record"
                 android:visibility="gone" />
 
+            <ImageView
+                android:id="@+id/waveformImageView"
+                android:layout_width="match_parent"
+                android:layout_height="120dp"
+                android:layout_marginBottom="8dp"
+                android:background="#FF1A1A2E"
+                android:scaleType="fitXY"
+                android:visibility="gone" />
+
+            <TextView
+                android:id="@+id/waveformInfoTextView"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="8dp"
+                android:fontFamily="monospace"
+                android:text=""
+                android:textColor="?android:attr/textColorSecondary"
+                android:textSize="12sp"
+                android:visibility="gone" />
+
             <TextView
                 android:id="@+id/tokenizerInputLabel"
                 android:layout_width="match_parent"
