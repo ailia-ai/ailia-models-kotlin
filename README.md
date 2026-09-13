@@ -8,7 +8,7 @@ Android Studio sample collection for running ailia SDK models from Kotlin. Each 
 - Android Studio 2025.1.3
 - Gradle 8.13.2
 - Kotlin 1.8.22
-- minSdk 24 / targetSdk 35
+- minSdk 21 / targetSdk 35
 - ailia SDK 1.5.0
 
 ## Setup
@@ -25,16 +25,16 @@ Models bundled in `res/raw` run without a download. Other models are downloaded 
 
 | Category | Model sample | Runtime |
 | --- | --- | --- |
-| Pose Estimation | [Lightweight Human Pose Estimation](app/src/main/java/jp/axinc/ailia_kotlin/AiliaPoseEstimatorSample.kt) | ailia SDK / ONNX Runtime |
-| Object Detection | [YOLOX TFLite](app/src/main/java/jp/axinc/ailia_kotlin/AiliaTFLiteObjectDetectionSample.kt), [YOLOX ONNX](app/src/main/java/jp/axinc/ailia_kotlin/AiliaOnnxObjectDetectionSample.kt), [DETR ResNet50](app/src/main/java/jp/axinc/ailia_kotlin/AiliaDetrSample.kt) | ailia TFLite Runtime / ailia SDK / ONNX Runtime |
+| Pose Estimation | [Lightweight Human Pose Estimation](app/src/main/java/jp/axinc/ailia_kotlin/AiliaPoseEstimatorSample.kt) | ailia SDK |
+| Object Detection | [YOLOX TFLite](app/src/main/java/jp/axinc/ailia_kotlin/AiliaTFLiteObjectDetectionSample.kt), [YOLOX ONNX](app/src/main/java/jp/axinc/ailia_kotlin/AiliaOnnxObjectDetectionSample.kt), [DETR ResNet50](app/src/main/java/jp/axinc/ailia_kotlin/AiliaDetrSample.kt) | ailia TFLite Runtime / ailia SDK |
 | Object Tracking | [ByteTrack](app/src/main/java/jp/axinc/ailia_kotlin/AiliaTrackerSample.kt) with YOLOX | ailia Tracker + detector runtime |
-| Image Classification | [MobileNetV2 / ResNet50 TFLite](app/src/main/java/jp/axinc/ailia_kotlin/AiliaTFLiteClassificationSample.kt), [MobileNetV2 / ResNet50 / ViT-B/16 ONNX](app/src/main/java/jp/axinc/ailia_kotlin/AiliaOnnxClassificationSample.kt) | ailia TFLite Runtime / ailia SDK / ONNX Runtime |
-| Background Removal | [U-2-Net](app/src/main/java/jp/axinc/ailia_kotlin/AiliaU2NetSample.kt) | ailia SDK / ONNX Runtime |
-| Zero-Shot Classification | [multilingual-MiniLMv2 L12](app/src/main/java/jp/axinc/ailia_kotlin/AiliaMiniLMv2Sample.kt) | ailia Tokenizer + ailia SDK / ONNX Runtime |
+| Image Classification | [MobileNetV2 / ResNet50 TFLite](app/src/main/java/jp/axinc/ailia_kotlin/AiliaTFLiteClassificationSample.kt), [MobileNetV2 / ResNet50 / ViT-B/16 ONNX](app/src/main/java/jp/axinc/ailia_kotlin/AiliaOnnxClassificationSample.kt) | ailia TFLite Runtime / ailia SDK |
+| Background Removal | [U-2-Net](app/src/main/java/jp/axinc/ailia_kotlin/AiliaU2NetSample.kt) | ailia SDK |
+| Zero-Shot Classification | [multilingual-MiniLMv2 L12](app/src/main/java/jp/axinc/ailia_kotlin/AiliaMiniLMv2Sample.kt) | ailia Tokenizer + ailia SDK |
 | Speech to Text | [Whisper / SenseVoice Small](app/src/main/java/jp/axinc/ailia_kotlin/AiliaSpeechSample.kt) | ailia AI Speech |
-| Speaker Verification | [WeSpeaker ResNet34 (VoxCeleb) + Silero VAD v6](app/src/main/java/jp/axinc/ailia_kotlin/AiliaWeSpeakerSample.kt) | ailia SDK / ONNX Runtime |
-| Voice Filtering | [VoiceFilter + dynamic d-vector embedder + Silero VAD v6](app/src/main/java/jp/axinc/ailia_kotlin/AiliaVoiceFilterSample.kt) | ailia SDK / ONNX Runtime |
-| Text to Speech | [GPT-SoVITS V1 / V2 / V3 / V2-Pro / V2-Pro Distill JA](app/src/main/java/jp/axinc/ailia_kotlin/AiliaVoiceSample.kt) | ailia AI Voice |
+| Speaker Verification | [WeSpeaker ResNet34 (VoxCeleb) + Silero VAD v6](app/src/main/java/jp/axinc/ailia_kotlin/AiliaWeSpeakerSample.kt) | ailia SDK |
+| Voice Filtering | [VoiceFilter + dynamic d-vector embedder + Silero VAD v6](app/src/main/java/jp/axinc/ailia_kotlin/AiliaVoiceFilterSample.kt) | ailia SDK |
+| Text to Speech | [GPT-SoVITS V1 / V2 / V3 / V2-Pro / V2-Pro Distill (Small / Base)](app/src/main/java/jp/axinc/ailia_kotlin/AiliaVoiceSample.kt) | ailia AI Voice |
 | LLM | [Gemma 4 E2B / E4B / Gemma 2 2B](app/src/main/java/jp/axinc/ailia_kotlin/AiliaLLMSample.kt) | ailia LLM |
 | Multimodal LLM | [Gemma 3 4B](app/src/main/java/jp/axinc/ailia_kotlin/AiliaMultimodalLLMSample.kt) | ailia LLM |
 
@@ -45,7 +45,6 @@ Add only the JNI modules needed by the selected sample.
 | Sample | Required Gradle modules |
 | --- | --- |
 | ONNX vision, U-2-Net, DETR | `ailia-sdk-jni` |
-| ONNX Runtime benchmark paths | `com.microsoft.onnxruntime:onnxruntime-android:1.26.0` |
 | TFLite vision | `ailia-tflite-jni` |
 | ByteTrack | `ailia-tracker-jni` plus the selected detector runtime |
 | multilingual-MiniLMv2 | `ailia-sdk-jni`, `ailia-tokenizer-jni` |
@@ -82,10 +81,6 @@ The inference-facing result classes are independent of the SDK wrappers:
 `detect`, `classify`, and `predictMask` return typed results without drawing. `drawDetections` and `drawMask` are optional Android renderers. The `process...` methods remain small compatibility wrappers used by the demo UI.
 
 Models in `res/raw` must be copied with their sample. Downloaded filenames and URLs are declared beside each model enum or at the top of its sample class. `INTERNET` is required for those downloads; `CAMERA` and `RECORD_AUDIO` are requested only when the corresponding feature is used.
-
-For runtime benchmarks, choose `ONNX Runtime (CPU)` from the environment spinner. The option is available for every sample whose inference graph is directly executable as ONNX: Lightweight Human Pose, YOLOX, DETR, ONNX Classification, Tracking's YOLOX detector, U-2-Net, MiniLMv2, WeSpeaker with Silero VAD, and VoiceFilter with its embedder and Silero VAD. Other entries execute the same model with the selected ailia SDK environment.
-
-The spinner intentionally does not offer ONNX Runtime for TFLite models, ailia AI Speech/Voice pipelines, or GGUF LLMs. Those samples are not single ONNX sessions and cannot be switched without replacing their tokenizer, decoder, synthesis, or generation pipeline.
 
 ## Screenshots
 

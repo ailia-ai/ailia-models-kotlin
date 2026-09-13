@@ -104,7 +104,7 @@ class VoiceInstrumentedTest {
             listOf("g2pW.onnx", "POLYPHONIC_CHARS.txt", "bopomofo_to_pinyin_wo_tune_dict.json")
         )
         downloadFiles(
-            "https://raw.githubusercontent.com/axinc-ai/ailia-models/master/audio_processing/gpt-sovits-v2/text/g2pw", "g2pw/",
+            "https://storage.googleapis.com/ailia-models/g2pw/gpt-sovits", "g2pw/",
             listOf("polyphonic.rep", "polyphonic-fix.rep")
         )
         Log.i(TAG, "Chinese dictionaries downloaded")
