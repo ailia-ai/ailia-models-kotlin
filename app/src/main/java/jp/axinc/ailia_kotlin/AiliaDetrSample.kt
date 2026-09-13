@@ -1,5 +1,9 @@
 package jp.axinc.ailia_kotlin
 
+import ai.onnxruntime.OnnxTensor
+import ai.onnxruntime.OrtEnvironment
+import ai.onnxruntime.OrtSession
+import ai.onnxruntime.TensorInfo
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Paint
@@ -51,6 +55,12 @@ class AiliaDetrSample(private val modelDirectory: File) {
     }
 
     private var ailia: AiliaModel? = null
+    private val ortEnvironment = OrtEnvironment.getEnvironment()
+    private var ortSession: OrtSession? = null
+    private var ortImageInputName: String? = null
+    private var ortMaskInputName: String? = null
+    private var ortLogitsOutputName: String? = null
+    private var ortBoxesOutputName: String? = null
     private var isInitialized = false
 
     fun downloadModel(listener: ModelDownloadListener? = null): Boolean {
@@ -98,6 +108,41 @@ class AiliaDetrSample(private val modelDirectory: File) {
         }
     }
 
+    fun initializeOnnxRuntime(): Boolean {
+        release()
+        return try {
+            val options = OrtSession.SessionOptions()
+            try {
+                val session = ortEnvironment.createSession(
+                    File(modelDirectory, MODEL_FILE).absolutePath,
+                    options,
+                )
+                ortSession = session
+                ortImageInputName = session.inputInfo.entries.firstOrNull { (_, info) ->
+                    (info.info as? TensorInfo)?.shape?.size == 4
+                }?.key ?: error("DETR image input was not found")
+                ortMaskInputName = session.inputInfo.entries.firstOrNull { (_, info) ->
+                    (info.info as? TensorInfo)?.shape?.size == 3
+                }?.key ?: error("DETR padding mask input was not found")
+                ortBoxesOutputName = session.outputInfo.entries.firstOrNull { (_, info) ->
+                    (info.info as? TensorInfo)?.shape?.lastOrNull() == 4L
+                }?.key ?: error("DETR box output was not found")
+                ortLogitsOutputName = session.outputInfo.entries.firstOrNull { (_, info) ->
+                    (info.info as? TensorInfo)?.shape?.lastOrNull() != 4L
+                }?.key ?: error("DETR logits output was not found")
+            } finally {
+                options.close()
+            }
+            isInitialized = true
+            Log.i(TAG, "DETR initialized with ONNX Runtime CPU")
+            true
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to initialize DETR with ONNX Runtime", e)
+            release()
+            false
+        }
+    }
+
     /** Compatibility wrapper for the demo UI. Use [detect] when copying inference code. */
     fun processObjectDetection(bitmap: Bitmap, canvas: Canvas, paint: Paint, text: Paint, w: Int, h: Int): Long {
         val result = detect(bitmap) ?: return -1
@@ -108,7 +153,8 @@ class AiliaDetrSample(private val modelDirectory: File) {
     /** Runs preprocessing, DETR inference and postprocessing without rendering. */
     fun detect(bitmap: Bitmap, threshold: Float = THRESHOLD): ModelInferenceResult<List<DetectionResult>>? {
         val model = ailia
-        if (!isInitialized || model == null) {
+        val session = ortSession
+        if (!isInitialized || (model == null && session == null)) {
             Log.e(TAG, "DETR not initialized")
             return null
         }
@@ -132,31 +178,78 @@ class AiliaDetrSample(private val modelDirectory: File) {
             }
 
             val startTime = System.nanoTime()
-            model.setInputBlobData(input, input.size * 4, model.getBlobIndexByInputIndex(0))
-            // 2番目の入力(パディングマスク)には全ゼロ(=パディングなし)を与える
-            if (model.inputBlobCount >= 2) {
-                val maskInput = FloatArray(plane)
-                model.setInputBlobData(maskInput, maskInput.size * 4, model.getBlobIndexByInputIndex(1))
-            }
-            model.update()
-
             // 出力はlogits(1,100,92)とboxes(1,100,4)。最終次元で判別する
             var logits: FloatArray? = null
             var boxes: FloatArray? = null
             var numQueries = 0
             var numClasses = 0
-            for (outIdx in 0 until model.outputBlobCount) {
-                val blobIndex = model.getBlobIndexByOutputIndex(outIdx)
-                val shape = model.getBlobShapeND(blobIndex)
-                val size = shape.fold(1) { acc, v -> acc * v }
-                val data = FloatArray(size)
-                model.getBlobData(data, size * 4, blobIndex)
-                if (shape.last() == 4) {
-                    boxes = data
-                } else {
-                    logits = data
-                    numQueries = shape[shape.size - 2]
-                    numClasses = shape.last()
+            if (session != null) {
+                val imageTensor = createFloatTensor(
+                    ortEnvironment,
+                    input,
+                    longArrayOf(1, 3, INPUT_SIZE.toLong(), INPUT_SIZE.toLong()),
+                )
+                val maskTensor = createBooleanTensor(
+                    ortEnvironment,
+                    ByteArray(plane),
+                    longArrayOf(1, INPUT_SIZE.toLong(), INPUT_SIZE.toLong()),
+                )
+                try {
+                    val result = session.run(
+                        mapOf(
+                            checkNotNull(ortImageInputName) to imageTensor,
+                            checkNotNull(ortMaskInputName) to maskTensor,
+                        ),
+                        setOf(checkNotNull(ortLogitsOutputName), checkNotNull(ortBoxesOutputName)),
+                    )
+                    try {
+                        for (index in 0 until result.size()) {
+                            val tensor = result[index] as OnnxTensor
+                            val shape = tensor.info.shape
+                            val data = readFloatTensor(tensor)
+                            if (shape.last() == 4L) {
+                                boxes = data
+                            } else {
+                                logits = data
+                                numQueries = shape[shape.size - 2].toInt()
+                                numClasses = shape.last().toInt()
+                            }
+                        }
+                    } finally {
+                        result.close()
+                    }
+                } finally {
+                    closeTensors(imageTensor, maskTensor)
+                }
+            } else {
+                val ailiaModel = checkNotNull(model)
+                ailiaModel.setInputBlobData(
+                    input,
+                    input.size * 4,
+                    ailiaModel.getBlobIndexByInputIndex(0),
+                )
+                if (ailiaModel.inputBlobCount >= 2) {
+                    val maskInput = FloatArray(plane)
+                    ailiaModel.setInputBlobData(
+                        maskInput,
+                        maskInput.size * 4,
+                        ailiaModel.getBlobIndexByInputIndex(1),
+                    )
+                }
+                ailiaModel.update()
+                for (outIdx in 0 until ailiaModel.outputBlobCount) {
+                    val blobIndex = ailiaModel.getBlobIndexByOutputIndex(outIdx)
+                    val shape = ailiaModel.getBlobShapeND(blobIndex)
+                    val size = shape.fold(1) { acc, value -> acc * value }
+                    val data = FloatArray(size)
+                    ailiaModel.getBlobData(data, size * 4, blobIndex)
+                    if (shape.last() == 4) {
+                        boxes = data
+                    } else {
+                        logits = data
+                        numQueries = shape[shape.size - 2]
+                        numClasses = shape.last()
+                    }
                 }
             }
             val endTime = System.nanoTime()
@@ -205,8 +298,18 @@ class AiliaDetrSample(private val modelDirectory: File) {
             ailia?.close()
         } catch (e: Exception) {
             Log.e(TAG, "Error releasing DETR: ${e.message}")
+        }
+        try {
+            ortSession?.close()
+        } catch (e: Exception) {
+            Log.e(TAG, "Error releasing ONNX Runtime DETR: ${e.message}")
         } finally {
             ailia = null
+            ortSession = null
+            ortImageInputName = null
+            ortMaskInputName = null
+            ortLogitsOutputName = null
+            ortBoxesOutputName = null
             isInitialized = false
             Log.i(TAG, "DETR released")
         }

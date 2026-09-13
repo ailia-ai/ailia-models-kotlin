@@ -1,5 +1,7 @@
 package jp.axinc.ailia_kotlin
 
+import ai.onnxruntime.OrtEnvironment
+import ai.onnxruntime.OrtSession
 import android.annotation.SuppressLint
 import android.media.AudioAttributes
 import android.media.AudioFormat
@@ -75,6 +77,10 @@ class AiliaVoiceFilterSample(private val modelDirectory: File) {
     private var filterModel: AiliaModel? = null
     private var embedderModel: AiliaModel? = null
     private var vadModel: AiliaModel? = null
+    private val ortEnvironment = OrtEnvironment.getEnvironment()
+    private var ortFilterSession: OrtSession? = null
+    private var ortEmbedderSession: OrtSession? = null
+    private var ortVadSession: OrtSession? = null
     @Volatile private var initialized = false
     @Volatile var lastErrorMessage: String? = null
         private set
@@ -141,6 +147,38 @@ class AiliaVoiceFilterSample(private val modelDirectory: File) {
         }
     }
 
+    fun initializeOnnxRuntime(): Boolean {
+        releaseModels()
+        lastErrorMessage = null
+        return try {
+            val options = OrtSession.SessionOptions()
+            try {
+                ortFilterSession = ortEnvironment.createSession(
+                    File(modelDirectory, FILTER_MODEL_FILE).absolutePath,
+                    options,
+                )
+                ortEmbedderSession = ortEnvironment.createSession(
+                    File(modelDirectory, EMBEDDER_MODEL_FILE).absolutePath,
+                    options,
+                )
+                ortVadSession = ortEnvironment.createSession(
+                    File(modelDirectory, VAD_MODEL_FILE).absolutePath,
+                    options,
+                )
+            } finally {
+                options.close()
+            }
+            initialized = true
+            Log.i(TAG, "VoiceFilter and Silero VAD initialized with ONNX Runtime CPU")
+            true
+        } catch (e: Exception) {
+            Log.e(TAG, "ONNX Runtime initialization failed", e)
+            lastErrorMessage = "VoiceFilter ONNX Runtime initialization failed: ${errorReason(e)}"
+            releaseModels()
+            false
+        }
+    }
+
     fun createEmbedding(
         interleavedAudio: FloatArray,
         channels: Int,
@@ -154,9 +192,9 @@ class AiliaVoiceFilterSample(private val modelDirectory: File) {
         val embedderAudio = VoiceFilterAudio.padForDynamicEmbedder(speech)
         val mel = VoiceFilterAudio.melSpectrogram(embedderAudio)
         val frameCount = mel.size / VoiceFilterAudio.MEL_BINS
-        val model = checkNotNull(embedderModel)
         lastErrorMessage = null
-        val embedding = runEmbedder(model, mel, frameCount)
+        val embedding = ortEmbedderSession?.let { runEmbedder(it, mel, frameCount) }
+            ?: runEmbedder(checkNotNull(embedderModel), mel, frameCount)
         return VoiceFilterEmbeddingResult(
             embedding = embedding,
             referenceDurationMs = speech.size * 1_000L / VoiceFilterAudio.SAMPLE_RATE,
@@ -188,6 +226,24 @@ class AiliaVoiceFilterSample(private val modelDirectory: File) {
         }
     }
 
+    private fun runEmbedder(session: OrtSession, mel: FloatArray, frameCount: Int): FloatArray {
+        return try {
+            val tensor = createFloatTensor(
+                ortEnvironment,
+                mel,
+                longArrayOf(VoiceFilterAudio.MEL_BINS.toLong(), frameCount.toLong()),
+            )
+            try {
+                runFloatTensor(session, mapOf("dvec_mel" to tensor), "dvec")
+            } finally {
+                tensor.close()
+            }
+        } catch (e: Exception) {
+            lastErrorMessage = "VoiceFilter embedder inference failed: ${errorReason(e)}"
+            throw IllegalStateException(lastErrorMessage, e)
+        }
+    }
+
     private fun errorReason(error: Exception): String =
         error.message?.takeIf { it.isNotBlank() } ?: error.javaClass.simpleName
 
@@ -208,31 +264,58 @@ class AiliaVoiceFilterSample(private val modelDirectory: File) {
             "At least 0.5 seconds of input audio is required"
         }
         val spectrum = VoiceFilterAudio.analysisSpectrum(filterInput)
-        val model = checkNotNull(filterModel)
-        val magnitudeIndex = Ailia.FindBlobIndexByName(model.handle, "mag")
-        val embeddingIndex = Ailia.FindBlobIndexByName(model.handle, "dvec")
-        model.setInputBlobShapeND(
-            intArrayOf(1, spectrum.frameCount, VoiceFilterAudio.FILTER_FREQUENCY_BINS),
-            magnitudeIndex,
-        )
-        model.setInputBlobShapeND(intArrayOf(1, EMBEDDING_SIZE), embeddingIndex)
-        model.setInputBlobData(
-            spectrum.magnitude,
-            spectrum.magnitude.size * Float.SIZE_BYTES,
-            magnitudeIndex,
-        )
-        model.setInputBlobData(
-            referenceEmbedding,
-            referenceEmbedding.size * Float.SIZE_BYTES,
-            embeddingIndex,
-        )
-        model.update()
-        val mask = FloatArray(spectrum.magnitude.size)
-        model.getBlobData(
-            mask,
-            mask.size * Float.SIZE_BYTES,
-            Ailia.FindBlobIndexByName(model.handle, "mask"),
-        )
+        val mask = ortFilterSession?.let { session ->
+            val magnitudeTensor = createFloatTensor(
+                ortEnvironment,
+                spectrum.magnitude,
+                longArrayOf(
+                    1,
+                    spectrum.frameCount.toLong(),
+                    VoiceFilterAudio.FILTER_FREQUENCY_BINS.toLong(),
+                ),
+            )
+            val embeddingTensor = createFloatTensor(
+                ortEnvironment,
+                referenceEmbedding,
+                longArrayOf(1, EMBEDDING_SIZE.toLong()),
+            )
+            try {
+                runFloatTensor(
+                    session,
+                    mapOf("mag" to magnitudeTensor, "dvec" to embeddingTensor),
+                    "mask",
+                )
+            } finally {
+                closeTensors(magnitudeTensor, embeddingTensor)
+            }
+        } ?: run {
+            val model = checkNotNull(filterModel)
+            val magnitudeIndex = Ailia.FindBlobIndexByName(model.handle, "mag")
+            val embeddingIndex = Ailia.FindBlobIndexByName(model.handle, "dvec")
+            model.setInputBlobShapeND(
+                intArrayOf(1, spectrum.frameCount, VoiceFilterAudio.FILTER_FREQUENCY_BINS),
+                magnitudeIndex,
+            )
+            model.setInputBlobShapeND(intArrayOf(1, EMBEDDING_SIZE), embeddingIndex)
+            model.setInputBlobData(
+                spectrum.magnitude,
+                spectrum.magnitude.size * Float.SIZE_BYTES,
+                magnitudeIndex,
+            )
+            model.setInputBlobData(
+                referenceEmbedding,
+                referenceEmbedding.size * Float.SIZE_BYTES,
+                embeddingIndex,
+            )
+            model.update()
+            FloatArray(spectrum.magnitude.size).also {
+                model.getBlobData(
+                    it,
+                    it.size * Float.SIZE_BYTES,
+                    Ailia.FindBlobIndexByName(model.handle, "mask"),
+                )
+            }
+        }
         val output = VoiceFilterAudio.reconstruct(spectrum, mask)
         return VoiceFilterResult(
             inputAudio = filterInput.copyOf(output.size),
@@ -244,6 +327,19 @@ class AiliaVoiceFilterSample(private val modelDirectory: File) {
 
     /** Removes non-speech regions with the same Silero VAD v6 settings as WeSpeaker. */
     private fun separateSpeech(audio: FloatArray): FloatArray {
+        ortVadSession?.let { session ->
+            val probabilities = runOrtSileroVad(
+                ortEnvironment,
+                session,
+                audio,
+                VAD_WINDOW_SIZE,
+                VAD_CONTEXT_SIZE,
+                VAD_STATE_SIZE,
+            )
+            val segments = SpeakerVerificationAudio.speechSegments(probabilities, audio.size)
+            require(segments.isNotEmpty()) { "Silero VAD did not detect speech" }
+            return SpeakerVerificationAudio.concatenateSegments(audio, segments)
+        }
         val model = checkNotNull(vadModel)
         val inputIndex = Ailia.FindBlobIndexByName(model.handle, "input")
         val stateIndex = Ailia.FindBlobIndexByName(model.handle, "state")
@@ -491,9 +587,19 @@ class AiliaVoiceFilterSample(private val modelDirectory: File) {
         } catch (e: Exception) {
             Log.e(TAG, "Failed to release Silero VAD", e)
         }
+        try {
+            ortFilterSession?.close()
+            ortEmbedderSession?.close()
+            ortVadSession?.close()
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to release ONNX Runtime audio sessions", e)
+        }
         filterModel = null
         embedderModel = null
         vadModel = null
+        ortFilterSession = null
+        ortEmbedderSession = null
+        ortVadSession = null
         initialized = false
     }
 

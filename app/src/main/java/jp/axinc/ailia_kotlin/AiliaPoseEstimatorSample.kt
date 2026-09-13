@@ -1,5 +1,9 @@
 package jp.axinc.ailia_kotlin
 
+import ai.onnxruntime.OnnxTensor
+import ai.onnxruntime.OrtEnvironment
+import ai.onnxruntime.OrtSession
+import ai.onnxruntime.TensorInfo
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
@@ -17,6 +21,12 @@ import java.io.File
 class AiliaPoseEstimatorSample(private val modelDirectory: File) {
     private var ailia: AiliaModel? = null
     private var poseEstimator: AiliaPoseEstimatorModel? = null
+    private val ortEnvironment = OrtEnvironment.getEnvironment()
+    private var ortSession: OrtSession? = null
+    private var ortInputName: String? = null
+    private var ortHeatmapsOutputName: String? = null
+    private var ortPafsOutputName: String? = null
+    private var lastOnnxPoseCount = 0
     private var isInitialized = false
 
     companion object {
@@ -39,6 +49,8 @@ class AiliaPoseEstimatorSample(private val modelDirectory: File) {
         // Python版(lightweight-human-pose-estimation.py)と同じ閾値。
         // スコアがこれ以下のキーポイント/ラインは描画しない
         private const val KEYPOINT_THRESHOLD = 0.3f
+        private const val ORT_INPUT_WIDTH = 320
+        private const val ORT_INPUT_HEIGHT = 240
 
         // Python版 display_result() と同じキーポイントの接続
         private val LINE_PAIRS = arrayOf(
@@ -132,7 +144,45 @@ class AiliaPoseEstimatorSample(private val modelDirectory: File) {
         }
     }
 
+    fun initializeOnnxRuntime(): Boolean {
+        releasePoseEstimator()
+        return try {
+            val options = OrtSession.SessionOptions()
+            try {
+                val session = ortEnvironment.createSession(
+                    File(modelDirectory, MODEL_SPEC.fileName).absolutePath,
+                    options,
+                )
+                ortSession = session
+                ortInputName = session.inputInfo.entries.firstOrNull { (_, info) ->
+                    val shape = (info.info as? TensorInfo)?.shape ?: return@firstOrNull false
+                    shape.size == 4 && shape[1] == 3L
+                }?.key ?: error("Pose image input was not found")
+                ortHeatmapsOutputName = session.outputInfo.entries.filter { (_, info) ->
+                    val shape = (info.info as? TensorInfo)?.shape ?: return@filter false
+                    shape.size == 4 && shape[1] == 19L
+                }.lastOrNull()?.key ?: error("Pose heatmap output was not found")
+                ortPafsOutputName = session.outputInfo.entries.filter { (_, info) ->
+                    val shape = (info.info as? TensorInfo)?.shape ?: return@filter false
+                    shape.size == 4 && shape[1] == 38L
+                }.lastOrNull()?.key ?: error("Pose PAF output was not found")
+            } finally {
+                options.close()
+            }
+            isInitialized = true
+            Log.i("AILIA_Main", "Pose estimator initialized with ONNX Runtime CPU")
+            true
+        } catch (e: Exception) {
+            Log.e("AILIA_Error", "Failed to initialize ONNX Runtime pose estimator", e)
+            releasePoseEstimator()
+            false
+        }
+    }
+
     fun processPoseEstimation(img: ByteArray, canvas: Canvas, paint: Paint, w: Int, h: Int): Long {
+        ortSession?.let { session ->
+            return processOnnxRuntimePose(session, img, canvas, paint, w, h)
+        }
         if (!isInitialized || poseEstimator == null) {
             Log.e("AILIA_Error", "Pose estimator not initialized")
             return -1
@@ -195,15 +245,95 @@ class AiliaPoseEstimatorSample(private val modelDirectory: File) {
         }
     }
 
+    private fun processOnnxRuntimePose(
+        session: OrtSession,
+        img: ByteArray,
+        canvas: Canvas,
+        paint: Paint,
+        width: Int,
+        height: Int,
+    ): Long {
+        return try {
+            val startedAt = System.nanoTime()
+            val input = resizeRgbaToRgbChw(
+                img,
+                width,
+                height,
+                ORT_INPUT_WIDTH,
+                ORT_INPUT_HEIGHT,
+            )
+            for (index in input.indices) input[index] = (input[index] - 128f) / 256f
+            val tensor = createFloatTensor(
+                ortEnvironment,
+                input,
+                longArrayOf(1, 3, ORT_INPUT_HEIGHT.toLong(), ORT_INPUT_WIDTH.toLong()),
+            )
+            val poses = try {
+                val result = session.run(
+                    mapOf(checkNotNull(ortInputName) to tensor),
+                    linkedSetOf(
+                        checkNotNull(ortHeatmapsOutputName),
+                        checkNotNull(ortPafsOutputName),
+                    ),
+                )
+                try {
+                    var heatmaps: FloatArray? = null
+                    var pafs: FloatArray? = null
+                    var mapWidth = 0
+                    var mapHeight = 0
+                    for (index in 0 until result.size()) {
+                        val output = result[index] as OnnxTensor
+                        val shape = output.info.shape
+                        mapHeight = shape[2].toInt()
+                        mapWidth = shape[3].toInt()
+                        if (shape[1] == 19L) {
+                            heatmaps = readFloatTensor(output)
+                        } else if (shape[1] == 38L) {
+                            pafs = readFloatTensor(output)
+                        }
+                    }
+                    decodeOrtLightweightPose(
+                        checkNotNull(heatmaps),
+                        checkNotNull(pafs),
+                        mapWidth,
+                        mapHeight,
+                    )
+                } finally {
+                    result.close()
+                }
+            } finally {
+                tensor.close()
+            }
+            lastOnnxPoseCount = poses.size
+            drawOrtLightweightPoses(poses, canvas, paint, width, height)
+            (System.nanoTime() - startedAt) / 1_000_000
+        } catch (e: Exception) {
+            Log.e("AILIA_Error", "ONNX Runtime pose estimation failed", e)
+            -1
+        }
+    }
+
+    fun getLastOnnxPoseCount(): Int = lastOnnxPoseCount
+
     fun releasePoseEstimator() {
         try {
             poseEstimator?.close()
             ailia?.close()
         } catch (e: Exception) {
             Log.e("AILIA_Error", "Error releasing pose estimator: ${e.javaClass.name}: ${e.message}")
+        }
+        try {
+            ortSession?.close()
+        } catch (e: Exception) {
+            Log.e("AILIA_Error", "Error releasing ONNX Runtime pose estimator", e)
         } finally {
             poseEstimator = null
             ailia = null
+            ortSession = null
+            ortInputName = null
+            ortHeatmapsOutputName = null
+            ortPafsOutputName = null
+            lastOnnxPoseCount = 0
             isInitialized = false
             Log.i("AILIA_Main", "Pose estimator released")
         }
