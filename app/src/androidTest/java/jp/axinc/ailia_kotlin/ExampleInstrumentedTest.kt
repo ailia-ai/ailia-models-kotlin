@@ -17,6 +17,6 @@ class ExampleInstrumentedTest {
     fun useAppContext() {
         // Context of the app under test.
         val appContext = InstrumentationRegistry.getInstrumentation().targetContext
-        assertEquals("jp.axinc.ailia_kotlin", appContext.packageName)
+        assertEquals("ai.ailia.ailia_kotlin", appContext.packageName)
     }
 }

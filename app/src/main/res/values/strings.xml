@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">ailia-models-kotlin</string>
+    <string name="app_name">ailia Kotlin</string>
     <string name="model_preview">Model input and inference result</string>
     <string name="multimodal_input_preview">Image input for the multimodal model</string>
 </resources>
