@@ -28,7 +28,8 @@ enum class VoiceModelType(val displayName: String, val defaultText: String) {
     GPT_SOVITS_V2("GPT-SoVITS V2", "こんにちは。今日はいい天気ですね。"),
     GPT_SOVITS_V3("GPT-SoVITS V3", "こんにちは。今日はいい天気ですね。"),
     GPT_SOVITS_V2_PRO("GPT-SoVITS V2-Pro", "こんにちは。今日はいい天気ですね。"),
-    GPT_SOVITS_V2_PRO_DISTILL_JA("GPT-SoVITS V2-Pro Distill JA", "こんにちは。今日はいい天気ですね。"),
+    GPT_SOVITS_V2_PRO_DISTILL_SMALL("GPT-SoVITS V2-Pro Distill Small", "こんにちは。今日はいい天気ですね。"),
+    GPT_SOVITS_V2_PRO_DISTILL_BASE("GPT-SoVITS V2-Pro Distill Base", "こんにちは。今日はいい天気ですね。"),
 }
 
 class AiliaVoiceSample(private val modelDirectory: File) {
@@ -50,6 +51,16 @@ class AiliaVoiceSample(private val modelDirectory: File) {
             }
             return "en"
         }
+    }
+
+    private fun isDistillModel(type: VoiceModelType): Boolean =
+        type == VoiceModelType.GPT_SOVITS_V2_PRO_DISTILL_SMALL ||
+        type == VoiceModelType.GPT_SOVITS_V2_PRO_DISTILL_BASE
+
+    /** 蒸留モデルのt2sサイズ("small"/"base")を返す。 */
+    private fun distillModelSize(type: VoiceModelType): String = when (type) {
+        VoiceModelType.GPT_SOVITS_V2_PRO_DISTILL_BASE -> "base"
+        else -> "small"
     }
 
     private var voice: AiliaVoice? = null
@@ -166,17 +177,21 @@ class AiliaVoiceSample(private val modelDirectory: File) {
         )
     }
 
-    private fun downloadModelV2ProDistill() {
+    /**
+     * 蒸留モデル(small/base)のダウンロード。
+     * t2s(encoder/fsdec/sdec)はサイズ別、vitsは常にvits_distill_small.onnxを使用する。
+     */
+    private fun downloadModelV2ProDistill(size: String) {
         downloadFiles(
             "https://storage.googleapis.com/ailia-models/gpt-sovits-v2-pro-distill",
             "gpt-sovits-v2-pro-distill/",
-            listOf("t2s_encoder_distill_small.onnx", "t2s_fsdec_distill_small.onnx",
-                   "t2s_sdec_distill_small.opt.onnx")
+            listOf("t2s_encoder_distill_${size}.onnx", "t2s_fsdec_distill_${size}.onnx",
+                   "t2s_sdec_distill_${size}.opt.onnx", "vits_distill_small.onnx")
         )
         downloadFiles(
             "https://storage.googleapis.com/ailia-models/gpt-sovits-v2-pro",
             "gpt-sovits-v2-pro/",
-            listOf("cnhubert.onnx", "vits.onnx", "sv.onnx")
+            listOf("cnhubert.onnx", "sv.onnx")
         )
     }
 
@@ -196,7 +211,8 @@ class AiliaVoiceSample(private val modelDirectory: File) {
                 VoiceModelType.GPT_SOVITS_V2 -> downloadModelV2()
                 VoiceModelType.GPT_SOVITS_V3 -> downloadModelV3()
                 VoiceModelType.GPT_SOVITS_V2_PRO -> downloadModelV2Pro()
-                VoiceModelType.GPT_SOVITS_V2_PRO_DISTILL_JA -> downloadModelV2ProDistill()
+                VoiceModelType.GPT_SOVITS_V2_PRO_DISTILL_SMALL -> downloadModelV2ProDistill("small")
+                VoiceModelType.GPT_SOVITS_V2_PRO_DISTILL_BASE -> downloadModelV2ProDistill("base")
             }
 
             Log.i(TAG, "End model download")
@@ -265,15 +281,18 @@ class AiliaVoiceSample(private val modelDirectory: File) {
                         vocab = "${v2pro}/vocab.txt"
                     )
                 }
-                VoiceModelType.GPT_SOVITS_V2_PRO_DISTILL_JA -> {
+                VoiceModelType.GPT_SOVITS_V2_PRO_DISTILL_SMALL,
+                VoiceModelType.GPT_SOVITS_V2_PRO_DISTILL_BASE -> {
+                    val size = distillModelSize(modelType)
                     val distill = "${dir}/gpt-sovits-v2-pro-distill"
                     val v2pro = "${dir}/gpt-sovits-v2-pro"
+                    // vitsはsmall/baseどちらもvits_distill_small.onnxで固定
                     voice?.openGPTSoVITSV2ProModelFile(
-                        encoder = "${distill}/t2s_encoder_distill_small.onnx",
-                        decoder1 = "${distill}/t2s_fsdec_distill_small.onnx",
-                        decoder2 = "${distill}/t2s_sdec_distill_small.opt.onnx",
+                        encoder = "${distill}/t2s_encoder_distill_${size}.onnx",
+                        decoder1 = "${distill}/t2s_fsdec_distill_${size}.onnx",
+                        decoder2 = "${distill}/t2s_sdec_distill_${size}.opt.onnx",
                         ssl = "${v2pro}/cnhubert.onnx",
-                        vits = "${v2pro}/vits.onnx",
+                        vits = "${distill}/vits_distill_small.onnx",
                         sv = "${v2pro}/sv.onnx",
                         chineseBert = null,
                         vocab = null
@@ -329,7 +348,7 @@ class AiliaVoiceSample(private val modelDirectory: File) {
             Log.d(TAG, "Ref Features: $refG2pText")
             voice?.setReferenceAudio(audio, audio.size * 4, channels, sampleRate, refG2pText)
 
-            val targetLanguage = if (modelType == VoiceModelType.GPT_SOVITS_V2_PRO_DISTILL_JA) "ja" else textLang
+            val targetLanguage = if (isDistillModel(modelType)) "ja" else textLang
             val g2pText = voice?.g2p(text, g2pTypeForLang(targetLanguage))!!
             Log.d(TAG, "Text: $text")
             Log.d(TAG, "Features: $g2pText")
