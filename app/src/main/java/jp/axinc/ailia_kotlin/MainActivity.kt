@@ -1973,6 +1973,8 @@ class MainActivity : AppCompatActivity() {
         // チャット風表示: 履歴は消さず、ユーザー発言とAI応答の吹き出しを追加する
         addChatBubble(userInput, isUser = true)
         val assistantBubble = addChatBubble("", isUser = false)
+        // Statusは吹き出しの下にあるため、送信直後にも一番下までスクロールして見えるようにする
+        scrollResultToBottom()
         llmInputEditText.setText("")
 
         cameraExecutor.execute {
@@ -2089,6 +2091,8 @@ class MainActivity : AppCompatActivity() {
             // チャット風表示: 履歴は消さず、ユーザー発言とAI応答の吹き出しを追加する
             addChatBubble(userInput, isUser = true)
             val assistantBubble = addChatBubble("", isUser = false)
+        // Statusは吹き出しの下にあるため、送信直後にも一番下までスクロールして見えるようにする
+        scrollResultToBottom()
             llmInputEditText.setText("")
 
             val isCameraMode = modeRadioGroup.checkedRadioButtonId == R.id.cameraRadioButton
@@ -2319,6 +2323,8 @@ class MainActivity : AppCompatActivity() {
         llmStatusTextView.text = if (needsInitialization) "Status: Initializing..." else "Status: Generating..."
         addChatBubble(userInput, isUser = true)
         val assistantBubble = addChatBubble("", isUser = false)
+        // Statusは吹き出しの下にあるため、送信直後にも一番下までスクロールして見えるようにする
+        scrollResultToBottom()
 
         cameraExecutor.execute {
             try {
