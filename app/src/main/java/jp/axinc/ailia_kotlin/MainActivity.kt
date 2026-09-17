@@ -57,7 +57,6 @@ class MainActivity : AppCompatActivity() {
     private lateinit var voiceStatusTextView: TextView
     private lateinit var voiceGenerateButton: Button
     private lateinit var voiceResultTextView: TextView
-    private lateinit var llmInputLabel: TextView
     private lateinit var llmInputEditText: EditText
     private lateinit var llmSendButton: Button
     private lateinit var llmOutputLabel: TextView
@@ -65,6 +64,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var llmStatusTextView: TextView
     private lateinit var llmEnvSpinner: Spinner
     private lateinit var llmBenchmarkButton: Button
+    private lateinit var llmInputBar: LinearLayout
     private lateinit var almInputModeRadioGroup: RadioGroup
     private lateinit var almWavRadioButton: RadioButton
     private lateinit var almMicRadioButton: RadioButton
@@ -276,7 +276,9 @@ class MainActivity : AppCompatActivity() {
         val rootLayout = findViewById<View>(R.id.rootLayout)
         ViewCompat.setOnApplyWindowInsetsListener(rootLayout) { v, insets ->
             val bars = insets.getInsets(
-                WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout()
+                WindowInsetsCompat.Type.systemBars() or
+                    WindowInsetsCompat.Type.displayCutout() or
+                    WindowInsetsCompat.Type.ime()
             )
             v.setPadding(bars.left, bars.top, bars.right, bars.bottom)
             insets
@@ -326,7 +328,6 @@ class MainActivity : AppCompatActivity() {
         voiceStatusTextView = findViewById(R.id.voiceStatusTextView)
         voiceGenerateButton = findViewById(R.id.voiceGenerateButton)
         voiceResultTextView = findViewById(R.id.voiceResultTextView)
-        llmInputLabel = findViewById(R.id.llmInputLabel)
         llmInputEditText = findViewById(R.id.llmInputEditText)
         llmSendButton = findViewById(R.id.llmSendButton)
         llmOutputLabel = findViewById(R.id.llmOutputLabel)
@@ -334,6 +335,7 @@ class MainActivity : AppCompatActivity() {
         llmStatusTextView = findViewById(R.id.llmStatusTextView)
         llmEnvSpinner = findViewById(R.id.llmEnvSpinner)
         llmBenchmarkButton = findViewById(R.id.llmBenchmarkButton)
+        llmInputBar = findViewById(R.id.llmInputBar)
         almInputModeRadioGroup = findViewById(R.id.almInputModeRadioGroup)
         almWavRadioButton = findViewById(R.id.almWavRadioButton)
         almMicRadioButton = findViewById(R.id.almMicRadioButton)
@@ -1137,7 +1139,7 @@ class MainActivity : AppCompatActivity() {
         trackingResultTextView,
         transcriptTextView,
         multimodalImageView,
-        llmInputLabel,
+        llmInputBar,
         llmInputEditText,
         llmSendButton,
         llmOutputLabel,
@@ -1230,7 +1232,7 @@ class MainActivity : AppCompatActivity() {
 
         val llmViews = setOf<View>(
             resultScrollView,
-            llmInputLabel,
+            llmInputBar,
             llmInputEditText,
             llmSendButton,
             llmOutputLabel,
@@ -1319,6 +1321,12 @@ class MainActivity : AppCompatActivity() {
         managedAlgorithmViews().forEach { view ->
             view.visibility = if (view in visibleViews) View.VISIBLE else View.GONE
         }
+
+        // LLM/VLM/ALMはStatusにPrefill/Decodeの計測結果を出すため、Processing Timeは表示しない
+        val isChatAlgorithm = currentAlgorithm == AlgorithmType.LLM ||
+            currentAlgorithm == AlgorithmType.MULTIMODAL_LLM ||
+            currentAlgorithm == AlgorithmType.ALM
+        processingTimeTextView.visibility = if (isChatAlgorithm) View.GONE else View.VISIBLE
 
         // 表示切り替え時に必要なアルゴリズム固有の初期状態を設定する。
         when (currentAlgorithm) {
