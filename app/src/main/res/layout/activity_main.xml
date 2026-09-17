@@ -644,6 +644,65 @@
                 android:text="Replay"
                 android:visibility="gone" />
 
+            <!-- ALM(音声入力)の入力ソース選択とマイク録音 -->
+            <RadioGroup
+                android:id="@+id/almInputModeRadioGroup"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="8dp"
+                android:orientation="horizontal"
+                android:visibility="gone">
+
+                <RadioButton
+                    android:id="@+id/almWavRadioButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:checked="true"
+                    android:text="Wav" />
+
+                <RadioButton
+                    android:id="@+id/almMicRadioButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="16dp"
+                    android:text="Mic" />
+            </RadioGroup>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="4dp"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <Button
+                    android:id="@+id/almRecordButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="48dp"
+                    android:insetTop="0dp"
+                    android:insetBottom="0dp"
+                    android:text="Record"
+                    android:visibility="gone" />
+
+                <TextView
+                    android:id="@+id/almInputNameTextView"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="16dp"
+                    android:layout_weight="1"
+                    android:text=""
+                    android:textColor="?android:attr/textColorSecondary"
+                    android:textSize="14sp"
+                    android:visibility="gone" />
+            </LinearLayout>
+
+            <jp.axinc.ailia_kotlin.WaveformView
+                android:id="@+id/almWaveformView"
+                android:layout_width="match_parent"
+                android:layout_height="100dp"
+                android:layout_marginBottom="8dp"
+                android:visibility="gone" />
+
             <TextView
                 android:id="@+id/llmInputLabel"
                 android:layout_width="match_parent"
@@ -670,14 +729,45 @@
                 android:textColorHint="?android:attr/textColorSecondary"
                 android:visibility="gone" />
 
-            <Button
-                android:id="@+id/llmSendButton"
-                android:layout_width="wrap_content"
+            <!-- Sendボタンとバックエンド選択(CPU/QNN)を同じ高さで横並びにする -->
+            <LinearLayout
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_gravity="end"
                 android:layout_marginBottom="8dp"
-                android:text="Send"
-                android:visibility="gone" />
+                android:orientation="horizontal">
+
+                <Button
+                    android:id="@+id/llmSendButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="48dp"
+                    android:insetTop="0dp"
+                    android:insetBottom="0dp"
+                    android:text="Send"
+                    android:visibility="gone" />
+
+                <!-- Prefill(PPS)計測用に2048トークンの評価テキストを入力欄へ貼り付ける -->
+                <Button
+                    android:id="@+id/llmBenchmarkButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="48dp"
+                    android:layout_marginStart="8dp"
+                    android:insetTop="0dp"
+                    android:insetBottom="0dp"
+                    android:minWidth="0dp"
+                    android:paddingStart="12dp"
+                    android:paddingEnd="12dp"
+                    android:text="2048 tok"
+                    android:textSize="12sp"
+                    android:visibility="gone" />
+
+                <Spinner
+                    android:id="@+id/llmEnvSpinner"
+                    android:layout_width="0dp"
+                    android:layout_height="48dp"
+                    android:layout_marginStart="16dp"
+                    android:layout_weight="1"
+                    android:visibility="gone" />
+            </LinearLayout>
 
             <TextView
                 android:id="@+id/llmStatusTextView"

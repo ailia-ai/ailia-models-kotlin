@@ -1,6 +1,7 @@
 package jp.axinc.ailia_kotlin
 
 import android.Manifest
+import android.content.Context
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
@@ -11,6 +12,7 @@ import android.graphics.Paint
 import android.os.Bundle
 import android.util.Log
 import android.view.View
+import android.view.ViewGroup
 import android.widget.*
 import androidx.appcompat.app.AppCompatActivity
 import androidx.camera.core.*
@@ -61,6 +63,14 @@ class MainActivity : AppCompatActivity() {
     private lateinit var llmOutputLabel: TextView
     private lateinit var llmChatContainer: LinearLayout
     private lateinit var llmStatusTextView: TextView
+    private lateinit var llmEnvSpinner: Spinner
+    private lateinit var llmBenchmarkButton: Button
+    private lateinit var almInputModeRadioGroup: RadioGroup
+    private lateinit var almWavRadioButton: RadioButton
+    private lateinit var almMicRadioButton: RadioButton
+    private lateinit var almRecordButton: Button
+    private lateinit var almInputNameTextView: TextView
+    private lateinit var almWaveformView: WaveformView
     private lateinit var multimodalImageView: ImageView
     private lateinit var speechLanguageLabel: TextView
     private lateinit var speechLanguageSpinner: Spinner
@@ -114,7 +124,9 @@ class MainActivity : AppCompatActivity() {
     private val speechSample by lazy { AiliaSpeechSample(modelDirectory) }
     private val voiceSample by lazy { AiliaVoiceSample(modelDirectory) }
     private val llmSample = AiliaLLMSample()
-    private val multimodalLLMSample = AiliaMultimodalLLMSample()
+    private val multimodalLLMSample = AiliaMultimodalLLMSample(MultimodalMediaType.IMAGE)
+    private val almSample = AiliaMultimodalLLMSample(MultimodalMediaType.AUDIO)
+    private val almRecorder = WavRecorder()
     private val onnxObjectDetectionSample by lazy { AiliaOnnxObjectDetectionSample(modelDirectory) }
     private val onnxClassificationSample by lazy { AiliaOnnxClassificationSample(modelDirectory) }
     private val u2netSample by lazy { AiliaU2NetSample(modelDirectory) }
@@ -165,6 +177,10 @@ class MainActivity : AppCompatActivity() {
     private var selectedSpeechModelType: SpeechModelType = SpeechModelType.SENSEVOICE_SMALL
     private var selectedSpeechLanguage: String = "ja"
     private var selectedLLMModelType: LLMModelType = LLMModelType.GEMMA_4_E2B
+    // 既定はQNN(NPU)。QNNモデルがない端末/モデルではsetupLLMBackendSpinnerでCPUに落ちる
+    private var selectedLLMBackend: LLMBackend = LLMBackend.QNN
+    /** ALMで推論に使う音声ファイル。Wav選択時はサンプル、Mic選択時は録音結果。 */
+    private var almAudioPath: String? = null
     private var isUpdatingSpeechOptionChecks = false
 
     private data class SpeakerReference(
@@ -184,6 +200,7 @@ class MainActivity : AppCompatActivity() {
         SPEAKER_ENROLL,
         VOICE_FILTER,
         VOICE_FILTER_ENROLL,
+        ALM,
     }
 
     private var speakerReferences = emptyList<SpeakerReference>()
@@ -225,6 +242,7 @@ class MainActivity : AppCompatActivity() {
         TEXT_TO_SPEECH,
         LLM,
         MULTIMODAL_LLM,
+        ALM,
         SPEAKER_VERIFICATION,
         VOICE_FILTER,
     }
@@ -236,6 +254,15 @@ class MainActivity : AppCompatActivity() {
 
         private const val REQUEST_CODE_CAMERA_PERMISSION = 10
         private const val REQUEST_CODE_AUDIO_PERMISSION = 11
+
+        /** ALMの既定プロンプト。入力音声の内容を説明させる。 */
+        private const val ALM_DEFAULT_PROMPT = "入力された音声の内容を説明してください"
+
+        /** ALMのWav入力で使用するサンプル音声のファイル名。 */
+        private const val ALM_SAMPLE_AUDIO_FILE = "alm_sample.wav"
+
+        /** ALMのMic入力で録音した音声の保存先ファイル名。 */
+        private const val ALM_RECORDED_AUDIO_FILE = "alm_recorded.wav"
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -305,6 +332,14 @@ class MainActivity : AppCompatActivity() {
         llmOutputLabel = findViewById(R.id.llmOutputLabel)
         llmChatContainer = findViewById(R.id.llmChatContainer)
         llmStatusTextView = findViewById(R.id.llmStatusTextView)
+        llmEnvSpinner = findViewById(R.id.llmEnvSpinner)
+        llmBenchmarkButton = findViewById(R.id.llmBenchmarkButton)
+        almInputModeRadioGroup = findViewById(R.id.almInputModeRadioGroup)
+        almWavRadioButton = findViewById(R.id.almWavRadioButton)
+        almMicRadioButton = findViewById(R.id.almMicRadioButton)
+        almRecordButton = findViewById(R.id.almRecordButton)
+        almInputNameTextView = findViewById(R.id.almInputNameTextView)
+        almWaveformView = findViewById(R.id.almWaveformView)
         multimodalImageView = findViewById(R.id.multimodalImageView)
         speechLanguageLabel = findViewById(R.id.speechLanguageLabel)
         speechLanguageSpinner = findViewById(R.id.speechLanguageSpinner)
@@ -351,7 +386,8 @@ class MainActivity : AppCompatActivity() {
             "Speech2Text",
             "Text2Speech",
             "LLM",
-            "MultimodalLLM",
+            "VLM",
+            "ALM",
             "SpeakerVerification",
             "VoiceFilter",
         )
@@ -533,8 +569,22 @@ class MainActivity : AppCompatActivity() {
                     isSelectableAiliaEnvironment(it.name)
                 }
             }
-            val envNames = ailiaEnvironments!!.map { "${it.name} (id:${it.id})" }.toTypedArray()
-            val adapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, envNames)
+            // FP16非対応のSoCではQNNを実行できないため、理由を表示して選択できないようにする
+            val fp16Supported = QnnSupport.isFp16Supported()
+            val disabledPositions = ailiaEnvironments!!.withIndex()
+                .filter { (_, env) -> !fp16Supported && QnnSupport.isQnnEnvironmentName(env.name) }
+                .map { (index, _) -> index }
+                .toSet()
+            val envNames = ailiaEnvironments!!.mapIndexed { index, env ->
+                val label = "${env.name} (id:${env.id})"
+                if (index in disabledPositions) "$label - This SoC QNN FP16 not supported" else label
+            }.toTypedArray()
+            val adapter = SelectableArrayAdapter(
+                this,
+                android.R.layout.simple_spinner_item,
+                envNames,
+                disabledPositions,
+            )
             adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
             target.adapter = adapter
 
@@ -561,6 +611,10 @@ class MainActivity : AppCompatActivity() {
                         break
                     }
                 }
+            }
+            if (defaultIndex in disabledPositions) {
+                // 既定値が選択できないQNNになる構成では、選択可能な先頭の環境に退避する
+                defaultIndex = envNames.indices.firstOrNull { it !in disabledPositions } ?: 0
             }
             target.setSelection(defaultIndex)
             selectedEnvId = ailiaEnvironments!![defaultIndex].id
@@ -731,7 +785,7 @@ class MainActivity : AppCompatActivity() {
                 selectedIndex = LLMModelType.values().indexOf(selectedLLMModelType)
                 LLMModelType.values().map { "${it.displayName} (Q4_K_M)" }.toTypedArray()
             }
-            AlgorithmType.MULTIMODAL_LLM -> arrayOf("Gemma-3 4B IT (Q4_K_M)")
+            AlgorithmType.MULTIMODAL_LLM, AlgorithmType.ALM -> arrayOf("Gemma 4 E2B (Q4_K_M)")
             AlgorithmType.SPEAKER_VERIFICATION -> {
                 selectedRuntime = "ONNX"
                 arrayOf("WeSpeaker ResNet34 (VoxCeleb) + Silero VAD v6")
@@ -752,6 +806,58 @@ class MainActivity : AppCompatActivity() {
         modelSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
             override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
                 onModelSelected(algorithm, position)
+            }
+            override fun onNothingSelected(parent: AdapterView<*>?) {}
+        }
+
+        when (algorithm) {
+            AlgorithmType.LLM -> setupLLMBackendSpinner()
+            // VLM/ALMはGemma 4 E2B固定のため、そのモデルのQNN対応状況で選択肢を決める
+            AlgorithmType.MULTIMODAL_LLM, AlgorithmType.ALM ->
+                setupLLMBackendSpinner(LLMModelType.GEMMA_4_E2B)
+            else -> {}
+        }
+    }
+
+    /**
+     * LLMの実行バックエンド(CPU/QNN)選択スピナーを更新する。
+     * QNNはailia LLMのAPIで取得したSoC名に対応する変換済みモデルがある場合のみ選択できる。
+     */
+    private fun setupLLMBackendSpinner(modelType: LLMModelType = selectedLLMModelType) {
+        val backends = LLMBackend.values().filter {
+            it != LLMBackend.QNN || QnnSupport.isLLMQnnAvailable(modelType)
+        }
+        if (selectedLLMBackend !in backends) {
+            // QNNモデルがない場合はCPUにフォールバックする
+            selectedLLMBackend = backends.first()
+        }
+        val items = backends.map { backend ->
+            when (backend) {
+                // 使用するモデルファイルが分かるようにSoC名を併記する
+                LLMBackend.QNN -> "${backend.displayName} ${QnnSupport.socName}"
+                else -> backend.displayName
+            }
+        }.toTypedArray()
+
+        val adapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, items)
+        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+        llmEnvSpinner.onItemSelectedListener = null
+        llmEnvSpinner.adapter = adapter
+        llmEnvSpinner.setSelection(backends.indexOf(selectedLLMBackend).coerceAtLeast(0), false)
+        llmEnvSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
+                val newBackend = backends[position]
+                if (newBackend != selectedLLMBackend) {
+                    selectedLLMBackend = newBackend
+                    // バックエンド切り替え時は解放のみ(ダウンロードはSend押下時)
+                    llmSample.release()
+                    multimodalLLMSample.release()
+                    almSample.release()
+                    isInitialized = false
+                    llmChatContainer.removeAllViews()
+                    setLLMControlsEnabled(true)
+                    llmStatusTextView.text = "Status: Press Send to run"
+                }
             }
             override fun onNothingSelected(parent: AdapterView<*>?) {}
         }
@@ -877,8 +983,10 @@ class MainActivity : AppCompatActivity() {
                     llmSample.release()
                     isInitialized = false
                     llmChatContainer.removeAllViews()
-                    llmSendButton.isEnabled = true
+                    setLLMControlsEnabled(true)
                     llmStatusTextView.text = "Status: Press Send to run"
+                    // モデルによってQNNモデルの有無が変わるためバックエンド選択を作り直す
+                    setupLLMBackendSpinner()
                 }
             }
             else -> {}
@@ -1003,7 +1111,7 @@ class MainActivity : AppCompatActivity() {
                 0
             }
 
-            AlgorithmType.LLM, AlgorithmType.MULTIMODAL_LLM -> {
+            AlgorithmType.LLM, AlgorithmType.MULTIMODAL_LLM, AlgorithmType.ALM -> {
                 // LLM modes are handled asynchronously via the send button
                 0
             }
@@ -1035,6 +1143,12 @@ class MainActivity : AppCompatActivity() {
         llmOutputLabel,
         llmChatContainer,
         llmStatusTextView,
+        llmEnvSpinner,
+        llmBenchmarkButton,
+        almInputModeRadioGroup,
+        almRecordButton,
+        almInputNameTextView,
+        almWaveformView,
         voiceInputEditText,
         voiceStatusTextView,
         voiceGenerateButton,
@@ -1122,7 +1236,11 @@ class MainActivity : AppCompatActivity() {
             llmOutputLabel,
             llmChatContainer,
             llmStatusTextView,
+            llmEnvSpinner,
         )
+
+        // PPS計測用の貼り付けボタンはテキストのLLM画面だけに表示する
+        val textLlmViews = llmViews + setOf<View>(llmBenchmarkButton)
 
         val multimodalViews = llmViews.toMutableSet().apply {
             add(modeRadioGroup)
@@ -1130,6 +1248,14 @@ class MainActivity : AppCompatActivity() {
             if (isCameraMode) {
                 add(cameraPreviewView)
             }
+        }
+
+        // 録音ボタンとファイル名の表示はupdateAlmInputVisibility()が入力ソースに応じて切り替える
+        val almViews = llmViews.toMutableSet().apply {
+            add(almInputModeRadioGroup)
+            add(almInputNameTextView)
+            add(almWaveformView)
+            add(almRecordButton)
         }
 
         val voiceViews = setOf<View>(
@@ -1179,8 +1305,9 @@ class MainActivity : AppCompatActivity() {
             AlgorithmType.BACKGROUND_REMOVAL to visionViews,
             AlgorithmType.SPEECH_TO_TEXT to speechViews,
             AlgorithmType.TEXT_TO_SPEECH to voiceViews,
-            AlgorithmType.LLM to llmViews,
+            AlgorithmType.LLM to textLlmViews,
             AlgorithmType.MULTIMODAL_LLM to multimodalViews,
+            AlgorithmType.ALM to almViews,
             AlgorithmType.SPEAKER_VERIFICATION to speakerVerificationViews,
             AlgorithmType.VOICE_FILTER to voiceFilterViews,
         )
@@ -1203,14 +1330,22 @@ class MainActivity : AppCompatActivity() {
                 llmInputEditText.setText("Hello!")
                 llmChatContainer.removeAllViews()
                 llmStatusTextView.text = "Status: Press Send to run"
-                llmSendButton.isEnabled = true
+                setLLMControlsEnabled(true)
             }
 
             AlgorithmType.MULTIMODAL_LLM -> {
                 llmInputEditText.setText("What is in this image?")
                 llmChatContainer.removeAllViews()
                 llmStatusTextView.text = "Status: Press Send to run"
-                llmSendButton.isEnabled = true
+                setLLMControlsEnabled(true)
+            }
+
+            AlgorithmType.ALM -> {
+                llmInputEditText.setText(ALM_DEFAULT_PROMPT)
+                llmChatContainer.removeAllViews()
+                llmStatusTextView.text = "Status: Press Send to run"
+                setLLMControlsEnabled(true)
+                updateAlmInputVisibility()
             }
 
             AlgorithmType.TEXT_TO_SPEECH -> {
@@ -1278,6 +1413,8 @@ class MainActivity : AppCompatActivity() {
         voiceWaveformView.clear()
         speakerWaveformView.clear()
         voiceFilterOutputWaveformView.clear()
+        almWaveformView.clear()
+        almAudioPath = null
         weSpeakerSample.stopPlayback()
         speakerPlayback = null
         voiceFilterSample.stopPlayback()
@@ -1318,6 +1455,9 @@ class MainActivity : AppCompatActivity() {
             AlgorithmType.MULTIMODAL_LLM -> {
                 setupMultimodalLLMSendButton()
             }
+            AlgorithmType.ALM -> {
+                setupALMControls()
+            }
             AlgorithmType.SPEAKER_VERIFICATION -> {
                 setupSpeakerVerificationControls()
             }
@@ -1350,6 +1490,8 @@ class MainActivity : AppCompatActivity() {
             voiceSample.releaseVoice()
             llmSample.release()
             multimodalLLMSample.release()
+            almRecorder.cancelRecording()
+            almSample.release()
         } catch (e: Exception) {
             Log.e("AILIA_Error", "Error releasing algorithms: ${e.message}")
         }
@@ -1611,7 +1753,7 @@ class MainActivity : AppCompatActivity() {
                     return
                 }
 
-                AlgorithmType.LLM, AlgorithmType.MULTIMODAL_LLM -> {
+                AlgorithmType.LLM, AlgorithmType.MULTIMODAL_LLM, AlgorithmType.ALM -> {
                     // モデルダウンロードはSend押下時(initialize*Async)まで遅延する
                     return
                 }
@@ -1700,7 +1842,26 @@ class MainActivity : AppCompatActivity() {
         setModelOperationControlsEnabled(true)
     }
 
+    /**
+     * LLM / VLM / ALM画面のSendと2048 tokボタンの有効・無効をまとめて切り替える。
+     * ダウンロード中や生成中に再度押されると、モデルの再初期化や会話履歴の破壊が起きるため、
+     * モデル操作の開始から終了までは押せないようにする。
+     */
+    private fun setLLMControlsEnabled(enabled: Boolean) {
+        llmSendButton.isEnabled = enabled
+        llmBenchmarkButton.isEnabled = enabled
+    }
+
     private fun setModelOperationControlsEnabled(enabled: Boolean) {
+        // ALMは録音中もSendを押せないようにする
+        setLLMControlsEnabled(enabled && !almRecorder.isRecording)
+        // 生成中にバックエンドや入力ソースを変えるとモデルを解放してしまうため止める
+        llmEnvSpinner.isEnabled = enabled
+        almRecordButton.isEnabled = enabled
+        almInputModeRadioGroup.isEnabled = enabled
+        for (index in 0 until almInputModeRadioGroup.childCount) {
+            almInputModeRadioGroup.getChildAt(index).isEnabled = enabled
+        }
         algorithmSpinner.isEnabled = enabled
         modelSpinner.isEnabled = enabled
         envSpinner.isEnabled = enabled
@@ -1746,6 +1907,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun setupLLMSendButton() {
+        setupLLMBenchmarkButton()
         llmSendButton.setOnClickListener {
             val userInput = llmInputEditText.text.toString().trim()
             if (userInput.isEmpty()) {
@@ -1756,11 +1918,56 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    /**
+     * Prefill(PPS)計測用に、ailia.aiのアイリア紹介文から作った評価テキストを入力欄へ貼り付ける。
+     * モデルが初期化済みならモデルのトークナイザで正確に2048トークンへ合わせる。
+     */
+    private fun setupLLMBenchmarkButton() {
+        llmBenchmarkButton.setOnClickListener {
+            setLLMControlsEnabled(false)
+            llmStatusTextView.text = "Status: Building benchmark prompt..."
+            cameraExecutor.execute {
+                val result = try {
+                    llmSample.buildBenchmarkPrompt(
+                        this@MainActivity,
+                        BenchmarkPrompt.DEFAULT_TARGET_TOKENS,
+                    )
+                } catch (e: Exception) {
+                    Log.e("AILIA_Main", "Failed to build benchmark prompt", e)
+                    null
+                }
+                runOnUiThreadIfActive {
+                    setLLMControlsEnabled(true)
+                    if (result == null) {
+                        llmStatusTextView.text = "Status: Failed to build benchmark prompt"
+                        return@runOnUiThreadIfActive
+                    }
+                    // 会話履歴が残っているとPrefillの対象が評価テキストだけでなくなるため、
+                    // 計測条件をそろえるために履歴と吹き出しをクリアする
+                    llmSample.clearHistory()
+                    llmChatContainer.removeAllViews()
+                    llmInputEditText.setText(result.text)
+                    val accuracy = if (result.exact) "tokens" else "tokens (estimated)"
+                    llmStatusTextView.text =
+                        "Status: Pasted ${result.tokens} $accuracy (history cleared). " +
+                            "Press Send to measure prefill"
+                }
+            }
+        }
+    }
+
     private fun performLLMChat(userInput: String) {
         val operationId = beginModelOperation() ?: return
         val needsInitialization = !isInitialized
         val modelType = selectedLLMModelType
-        llmSendButton.isEnabled = false
+        val backend = selectedLLMBackend
+        // QNN選択時はSoC固有の.qnnファイルをダウンロードするため、進捗表示のファイル名も切り替える
+        val modelFileName = if (backend == LLMBackend.QNN) {
+            QnnSupport.llmQnnFileName(modelType) ?: modelType.fileName
+        } else {
+            modelType.fileName
+        }
+        setLLMControlsEnabled(false)
         processingTimeTextView.text = "Processing Time: -- ms"
         llmStatusTextView.text = if (needsInitialization) "Status: Initializing..." else "Status: Generating..."
         // チャット風表示: 履歴は消さず、ユーザー発言とAI応答の吹き出しを追加する
@@ -1772,13 +1979,14 @@ class MainActivity : AppCompatActivity() {
             try {
                 val initialized = if (needsInitialization) {
                     llmSample.modelType = modelType
+                    llmSample.backend = backend
                     llmSample.initialize(this@MainActivity, object : ModelDownloader.DownloadListener {
                         override fun onProgress(bytesDownloaded: Long, totalBytes: Long) {
                             if (!isCurrentOperation(operationId)) return
                             runOnUiThreadIfActive {
                                 if (!isCurrentOperation(operationId)) return@runOnUiThreadIfActive
                                 showModelDownloadProgress(
-                                    modelType.fileName,
+                                    modelFileName,
                                     bytesDownloaded,
                                     totalBytes,
                                 )
@@ -1804,7 +2012,7 @@ class MainActivity : AppCompatActivity() {
                         isInitialized = false
                         llmStatusTextView.text = "Status: Initialization failed"
                         hideModelDownloadProgress()
-                        llmSendButton.isEnabled = true
+                        setLLMControlsEnabled(true)
                         finishModelOperation(operationId)
                     }
                     return@execute
@@ -1834,10 +2042,15 @@ class MainActivity : AppCompatActivity() {
                 runOnUiThreadIfActive {
                     if (!isCurrentOperation(operationId)) return@runOnUiThreadIfActive
                     isInitialized = true
-                    llmSendButton.isEnabled = true
+                    setLLMControlsEnabled(true)
                     hideModelDownloadProgress()
                     if (processingTime >= 0) {
-                        llmStatusTextView.text = "Status: Complete"
+                        val performance = llmSample.lastPerformance
+                        llmStatusTextView.text = if (performance != null) {
+                            "Status: Complete - ${performance.summary()}"
+                        } else {
+                            "Status: Complete"
+                        }
                         processingTimeTextView.text = "Processing Time: ${processingTime}ms"
                     }
                     finishModelOperation(operationId)
@@ -1846,7 +2059,7 @@ class MainActivity : AppCompatActivity() {
                 Log.e("AILIA_Main", "LLM request failed", e)
                 runOnUiThreadIfActive {
                     if (!isCurrentOperation(operationId)) return@runOnUiThreadIfActive
-                    llmSendButton.isEnabled = true
+                    setLLMControlsEnabled(true)
                     hideModelDownloadProgress()
                     llmStatusTextView.text = "Status: Error - ${e.message}"
                     finishModelOperation(operationId)
@@ -1869,7 +2082,8 @@ class MainActivity : AppCompatActivity() {
     private fun performMultimodalChat(userInput: String) {
             val operationId = beginModelOperation() ?: return
             val needsInitialization = !isInitialized
-            llmSendButton.isEnabled = false
+            val backend = selectedLLMBackend
+            setLLMControlsEnabled(false)
             processingTimeTextView.text = "Processing Time: -- ms"
             llmStatusTextView.text = if (needsInitialization) "Status: Initializing..." else "Status: Generating..."
             // チャット風表示: 履歴は消さず、ユーザー発言とAI応答の吹き出しを追加する
@@ -1926,6 +2140,7 @@ class MainActivity : AppCompatActivity() {
                     }
 
                     val initialized = if (needsInitialization) {
+                        multimodalLLMSample.backend = backend
                         multimodalLLMSample.initialize(this@MainActivity, listener)
                     } else {
                         true
@@ -1935,7 +2150,7 @@ class MainActivity : AppCompatActivity() {
                             if (!isCurrentOperation(operationId)) return@runOnUiThreadIfActive
                             isInitialized = false
                             llmStatusTextView.text = "Status: Initialization failed"
-                            llmSendButton.isEnabled = true
+                            setLLMControlsEnabled(true)
                             hideModelDownloadProgress()
                             finishModelOperation(operationId)
                         }
@@ -1946,7 +2161,7 @@ class MainActivity : AppCompatActivity() {
                     runOnUiThreadIfActive {
                         if (!isCurrentOperation(operationId)) return@runOnUiThreadIfActive
                         isInitialized = true
-                        llmSendButton.isEnabled = true
+                        setLLMControlsEnabled(true)
                         hideModelDownloadProgress()
                         if (processingTime >= 0) {
                             llmStatusTextView.text = "Status: Complete"
@@ -1960,7 +2175,7 @@ class MainActivity : AppCompatActivity() {
                     cameraFrame?.takeUnless(Bitmap::isRecycled)?.recycle()
                     runOnUiThreadIfActive {
                         if (!isCurrentOperation(operationId)) return@runOnUiThreadIfActive
-                        llmSendButton.isEnabled = true
+                        setLLMControlsEnabled(true)
                         hideModelDownloadProgress()
                         llmStatusTextView.text = "Status: Error - ${e.message}"
                         finishModelOperation(operationId)
@@ -1969,10 +2184,225 @@ class MainActivity : AppCompatActivity() {
             }
     }
 
+    /** ALM(音声入力)の入力ソース切り替えと録音ボタンを設定する。 */
+    private fun setupALMControls() {
+        llmSendButton.setOnClickListener {
+            val userInput = llmInputEditText.text.toString().trim()
+            if (userInput.isEmpty()) {
+                llmStatusTextView.text = "Status: Please enter a prompt about the audio"
+                return@setOnClickListener
+            }
+            performALMChat(userInput)
+        }
+
+        almInputModeRadioGroup.setOnCheckedChangeListener { _, _ ->
+            if (almRecorder.isRecording) almRecorder.cancelRecording()
+            almAudioPath = null
+            almWaveformView.clear()
+            updateAlmInputVisibility()
+        }
+
+        almRecordButton.setOnClickListener {
+            if (almRecorder.isRecording) {
+                almRecorder.stopRecording()
+            } else {
+                startAlmRecording()
+            }
+        }
+
+        updateAlmInputVisibility()
+    }
+
+    /** 入力ソース(Wav/Mic)に応じて録音ボタンと波形表示を切り替える。 */
+    private fun updateAlmInputVisibility() {
+        if (currentAlgorithm != AlgorithmType.ALM) return
+        val wavMode = almInputModeRadioGroup.checkedRadioButtonId == R.id.almWavRadioButton
+        almRecordButton.visibility = if (wavMode) View.GONE else View.VISIBLE
+        almRecordButton.text = if (almRecorder.isRecording) "Stop" else "Record"
+        setLLMControlsEnabled(!almRecorder.isRecording && !isDownloadingModel.get())
+
+        if (wavMode) {
+            // Wav入力は同梱のサンプル音声を使う
+            val samplePath = almAudioPath ?: prepareAlmSampleAudio()
+            almAudioPath = samplePath
+            almInputNameTextView.text = if (samplePath != null) "Input: demo.wav" else "Input: --"
+            if (samplePath != null) showAlmWaveform(samplePath)
+        } else {
+            almInputNameTextView.text = when {
+                almRecorder.isRecording -> "Recording... (max ${WavRecorder.MAX_RECORDING_SECONDS}s)"
+                almAudioPath != null -> "Input: recorded audio"
+                else -> "Press Record to capture audio"
+            }
+        }
+    }
+
+    /** 同梱のdemo.wavをキャッシュへ書き出し、AiliaLLMに渡せるパスを返す。 */
+    private fun prepareAlmSampleAudio(): String? = try {
+        val file = File(cacheDir, ALM_SAMPLE_AUDIO_FILE)
+        if (!file.isFile || file.length() <= 0) {
+            resources.openRawResource(R.raw.demo).use { input ->
+                FileOutputStream(file).use { output -> input.copyTo(output) }
+            }
+        }
+        file.absolutePath
+    } catch (e: Exception) {
+        Log.e("AILIA_Main", "Failed to prepare ALM sample audio", e)
+        null
+    }
+
+    private fun showAlmWaveform(path: String) {
+        try {
+            val wav = FileInputStream(File(path)).use { AudioUtil().loadRawAudio(it) }
+            almWaveformView.showAudio(wav.audioData, wav.channels)
+        } catch (e: Exception) {
+            Log.e("AILIA_Main", "Failed to show ALM waveform: ${e.message}")
+            almWaveformView.clear()
+        }
+    }
+
+    private fun startAlmRecording() {
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            pendingAudioAction = PendingAudioAction.ALM
+            ActivityCompat.requestPermissions(
+                this,
+                arrayOf(Manifest.permission.RECORD_AUDIO),
+                REQUEST_CODE_AUDIO_PERMISSION,
+            )
+            return
+        }
+        pendingAudioAction = null
+        almAudioPath = null
+        almWaveformView.clear()
+
+        val started = almRecorder.startRecording(
+            File(cacheDir, ALM_RECORDED_AUDIO_FILE),
+            object : WavRecorder.RecordingListener {
+                override fun onWaveform(chunk: FloatArray, sampleRate: Int) {
+                    val blocks = WaveformView.peakBlocks(chunk, chunk.size, sampleRate)
+                    runOnUiThreadIfActive { almWaveformView.push(blocks) }
+                }
+
+                override fun onCompleted(file: File, audio: FloatArray, sampleRate: Int) {
+                    runOnUiThreadIfActive {
+                        almAudioPath = file.absolutePath
+                        almWaveformView.showAudio(audio)
+                        updateAlmInputVisibility()
+                        llmStatusTextView.text = "Status: Press Send to run"
+                    }
+                }
+
+                override fun onError(error: String) {
+                    runOnUiThreadIfActive {
+                        llmStatusTextView.text = "Status: Recording error - $error"
+                        updateAlmInputVisibility()
+                    }
+                }
+            },
+        )
+        if (started) {
+            llmStatusTextView.text = "Status: Recording..."
+        }
+        updateAlmInputVisibility()
+    }
+
+    private fun performALMChat(userInput: String) {
+        val audioPath = almAudioPath
+        if (audioPath == null) {
+            llmStatusTextView.text = "Status: No audio input. Press Record first."
+            return
+        }
+        val operationId = beginModelOperation() ?: return
+        val needsInitialization = !isInitialized
+        val backend = selectedLLMBackend
+        setLLMControlsEnabled(false)
+        processingTimeTextView.text = "Processing Time: -- ms"
+        llmStatusTextView.text = if (needsInitialization) "Status: Initializing..." else "Status: Generating..."
+        addChatBubble(userInput, isUser = true)
+        val assistantBubble = addChatBubble("", isUser = false)
+
+        cameraExecutor.execute {
+            try {
+                val listener = object : AiliaMultimodalLLMSample.MultimodalLLMListener {
+                    override fun onDownloadProgress(fileName: String, bytesDownloaded: Long, totalBytes: Long) {
+                        if (!isCurrentOperation(operationId)) return
+                        runOnUiThreadIfActive {
+                            if (!isCurrentOperation(operationId)) return@runOnUiThreadIfActive
+                            showModelDownloadProgress(fileName, bytesDownloaded, totalBytes)
+                        }
+                    }
+
+                    override fun onStatus(status: String) {
+                        runOnUiThreadIfActive {
+                            if (!isCurrentOperation(operationId)) return@runOnUiThreadIfActive
+                            llmStatusTextView.text = "Status: $status"
+                        }
+                    }
+
+                    override fun onToken(token: String) {
+                        runOnUiThreadIfActive {
+                            if (!isCurrentOperation(operationId)) return@runOnUiThreadIfActive
+                            assistantBubble.append(token)
+                            scrollResultToBottom()
+                        }
+                    }
+
+                    override fun onComplete(fullResponse: String) = Unit
+
+                    override fun onError(error: String) {
+                        runOnUiThreadIfActive {
+                            if (!isCurrentOperation(operationId)) return@runOnUiThreadIfActive
+                            llmStatusTextView.text = "Status: Error - $error"
+                        }
+                    }
+                }
+
+                val initialized = if (needsInitialization) {
+                    almSample.backend = backend
+                    almSample.initialize(this@MainActivity, listener)
+                } else {
+                    true
+                }
+                if (!initialized || !isCurrentOperation(operationId)) {
+                    runOnUiThreadIfActive {
+                        if (!isCurrentOperation(operationId)) return@runOnUiThreadIfActive
+                        isInitialized = false
+                        llmStatusTextView.text = "Status: Initialization failed"
+                        setLLMControlsEnabled(true)
+                        hideModelDownloadProgress()
+                        finishModelOperation(operationId)
+                    }
+                    return@execute
+                }
+
+                val processingTime = almSample.chatWithMedia(audioPath, userInput, listener)
+                runOnUiThreadIfActive {
+                    if (!isCurrentOperation(operationId)) return@runOnUiThreadIfActive
+                    isInitialized = true
+                    setLLMControlsEnabled(true)
+                    hideModelDownloadProgress()
+                    if (processingTime >= 0) {
+                        llmStatusTextView.text = "Status: Complete"
+                        processingTimeTextView.text = "Processing Time: ${processingTime}ms"
+                    }
+                    finishModelOperation(operationId)
+                }
+            } catch (e: Exception) {
+                Log.e("AILIA_Main", "ALM request failed", e)
+                runOnUiThreadIfActive {
+                    if (!isCurrentOperation(operationId)) return@runOnUiThreadIfActive
+                    setLLMControlsEnabled(true)
+                    hideModelDownloadProgress()
+                    llmStatusTextView.text = "Status: Error - ${e.message}"
+                    finishModelOperation(operationId)
+                }
+            }
+        }
+    }
+
     private fun loadSampleImageForMultimodal() {
         val isImageMode = modeRadioGroup.checkedRadioButtonId == R.id.imageRadioButton
         if (!isImageMode) return  // Camera mode: don't load sample image
-        val imagePath = multimodalLLMSample.getSampleImagePath()
+        val imagePath = multimodalLLMSample.getSampleMediaPath()
         if (imagePath != null) {
             val bitmap = android.graphics.BitmapFactory.decodeFile(imagePath)
             if (bitmap != null) {
@@ -3521,6 +3951,11 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
+        // ALMはSend押下時にダウンロード+初期化する
+        if (currentAlgorithm == AlgorithmType.ALM) {
+            return
+        }
+
         // MultimodalLLMはperson画像の表示のみ(ダウンロードはSend押下時)
         if (currentAlgorithm == AlgorithmType.MULTIMODAL_LLM) {
             val isImageMode = modeRadioGroup.checkedRadioButtonId == R.id.imageRadioButton
@@ -3793,6 +4228,7 @@ class MainActivity : AppCompatActivity() {
                             startVoiceFilterRecording(VoiceFilterRecordingPurpose.FILTER)
                         PendingAudioAction.VOICE_FILTER_ENROLL ->
                             startVoiceFilterRecording(VoiceFilterRecordingPurpose.ENROLL)
+                        PendingAudioAction.ALM -> startAlmRecording()
                         PendingAudioAction.SPEECH, null -> startMicRecording()
                     }
                 } else {
@@ -3810,6 +4246,8 @@ class MainActivity : AppCompatActivity() {
         isDownloadingModel.set(false)
         llmSample.cancelGeneration()
         multimodalLLMSample.cancelGeneration()
+        almSample.cancelGeneration()
+        almRecorder.cancelRecording()
         recTimerHandler.removeCallbacksAndMessages(null)
         stopMicRecording(finalize = false)
         stopCamera()
@@ -3857,4 +4295,29 @@ internal fun preferredBlasThenCpuEnvironmentIndex(environmentTypes: List<Int>): 
 
     val cpuIndex = environmentTypes.indexOfFirst { it == AiliaEnvironment.TYPE_CPU }
     return cpuIndex.coerceAtLeast(0)
+}
+
+/**
+ * 一部の項目を選択不可(グレー表示)にできるSpinner用アダプタ。
+ * Spinnerのドロップダウンは Adapter.isEnabled を尊重するため、無効な項目はタップできなくなる。
+ */
+private class SelectableArrayAdapter(
+    context: Context,
+    resource: Int,
+    items: Array<String>,
+    private val disabledPositions: Set<Int>,
+) : ArrayAdapter<String>(context, resource, items) {
+    override fun areAllItemsEnabled(): Boolean = disabledPositions.isEmpty()
+
+    override fun isEnabled(position: Int): Boolean = position !in disabledPositions
+
+    override fun getDropDownView(position: Int, convertView: View?, parent: ViewGroup): View {
+        val view = super.getDropDownView(position, convertView, parent)
+        val enabled = isEnabled(position)
+        (view as? TextView)?.let {
+            it.isEnabled = enabled
+            it.alpha = if (enabled) 1.0f else 0.4f
+        }
+        return view
+    }
 }
