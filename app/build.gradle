@@ -8,7 +8,7 @@ android {
     compileSdk 35
 
     defaultConfig {
-        applicationId "ai.ailia.ailia_kotlin"
+        applicationId "ai.ailia.ailia_kotlin_qnn"
         minSdk 21
         targetSdk 35
         versionCode 1
@@ -55,6 +55,7 @@ dependencies {
     implementation project(':ailia-audio-jni')
     implementation project(':ailia-voice-jni')
     implementation project(':ailia-llm-jni')
+    implementation 'com.qualcomm.qti:qnn-runtime:2.47.0'
     testImplementation 'junit:junit:4.13.2'
     androidTestImplementation 'androidx.test.ext:junit:1.2.1'
     androidTestImplementation 'androidx.test.espresso:espresso-core:3.3.0'
