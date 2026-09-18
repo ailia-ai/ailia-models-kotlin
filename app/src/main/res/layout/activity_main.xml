@@ -834,14 +834,19 @@
             android:layout_width="wrap_content"
             android:layout_height="48dp"
             android:layout_marginStart="8dp"
+            android:contentDescription="Paste 2048 token benchmark text"
             android:insetTop="0dp"
             android:insetBottom="0dp"
             android:minWidth="0dp"
             android:paddingStart="12dp"
             android:paddingEnd="12dp"
-            android:text="2048 tok"
+            android:text="2048"
             android:textSize="12sp"
-            android:visibility="gone" />
+            android:tooltipText="Paste 2048 token benchmark text"
+            android:visibility="gone"
+            app:icon="@drawable/ic_content_paste"
+            app:iconPadding="4dp"
+            app:iconSize="18dp" />
 
         <Button
             android:id="@+id/llmSendButton"
