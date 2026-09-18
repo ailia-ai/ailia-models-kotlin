@@ -22,6 +22,7 @@ import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
+import com.google.android.material.button.MaterialButton
 import axip.ailia.*
 import axip.ailia_tflite.*
 import axip.ailia_llm.AiliaLLM
@@ -58,7 +59,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var voiceGenerateButton: Button
     private lateinit var voiceResultTextView: TextView
     private lateinit var llmInputEditText: EditText
-    private lateinit var llmSendButton: Button
+    private lateinit var llmSendButton: MaterialButton
     private lateinit var llmOutputLabel: TextView
     private lateinit var llmChatContainer: LinearLayout
     private lateinit var llmStatusTextView: TextView
@@ -179,6 +180,12 @@ class MainActivity : AppCompatActivity() {
     private var selectedLLMModelType: LLMModelType = LLMModelType.GEMMA_4_E2B
     // 既定はQNN(NPU)。QNNモデルがない端末/モデルではsetupLLMBackendSpinnerでCPUに落ちる
     private var selectedLLMBackend: LLMBackend = LLMBackend.QNN
+    /** 生成中かどうか。生成中はSendボタンをStopボタンとして使う。 */
+    private var llmGenerating = false
+
+    /** Stopボタンで生成を止めたかどうか。エラー表示と区別するために使う。 */
+    private var llmStopRequested = false
+
     /** ALMで推論に使う音声ファイル。Wav選択時はサンプル、Mic選択時は録音結果。 */
     private var almAudioPath: String? = null
     private var isUpdatingSpeechOptionChecks = false
@@ -1856,9 +1863,38 @@ class MainActivity : AppCompatActivity() {
      * モデル操作の開始から終了までは押せないようにする。
      */
     private fun setLLMControlsEnabled(enabled: Boolean) {
-        llmSendButton.isEnabled = enabled
+        // 生成中はStopとして押せる必要があるため、Sendボタンだけは無効化しない
+        llmSendButton.isEnabled = enabled || llmGenerating
         llmBenchmarkButton.isEnabled = enabled
     }
+
+    /** 生成中はSendボタンをStopボタンに切り替える。 */
+    private fun setLLMGenerating(generating: Boolean) {
+        llmGenerating = generating
+        if (!generating) llmStopRequested = false
+        llmSendButton.setIconResource(
+            if (generating) R.drawable.ic_stop else R.drawable.ic_send
+        )
+        llmSendButton.contentDescription = if (generating) "Stop" else "Send"
+        llmSendButton.isEnabled = generating || !isDownloadingModel.get()
+    }
+
+    /** Stopボタンで生成中の推論を止める。 */
+    private fun stopLLMGeneration() {
+        llmStopRequested = true
+        llmSendButton.isEnabled = false
+        llmStatusTextView.text = "Status: Stopping..."
+        when (currentAlgorithm) {
+            AlgorithmType.LLM -> llmSample.cancelGeneration()
+            AlgorithmType.MULTIMODAL_LLM -> multimodalLLMSample.cancelGeneration()
+            AlgorithmType.ALM -> almSample.cancelGeneration()
+            else -> {}
+        }
+    }
+
+    /** Stopで止めた場合はエラーではなく停止として表示する。 */
+    private fun llmErrorStatus(error: String): String =
+        if (llmStopRequested) "Status: Stopped" else "Status: Error - $error"
 
     private fun setModelOperationControlsEnabled(enabled: Boolean) {
         // ALMは録音中もSendを押せないようにする
@@ -1917,6 +1953,10 @@ class MainActivity : AppCompatActivity() {
     private fun setupLLMSendButton() {
         setupLLMBenchmarkButton()
         llmSendButton.setOnClickListener {
+            if (llmGenerating) {
+                stopLLMGeneration()
+                return@setOnClickListener
+            }
             val userInput = llmInputEditText.text.toString().trim()
             if (userInput.isEmpty()) {
                 llmStatusTextView.text = "Status: Please enter a message"
@@ -1945,6 +1985,7 @@ class MainActivity : AppCompatActivity() {
                     null
                 }
                 runOnUiThreadIfActive {
+                    setLLMGenerating(false)
                     setLLMControlsEnabled(true)
                     if (result == null) {
                         llmStatusTextView.text = "Status: Failed to build benchmark prompt"
@@ -2020,8 +2061,10 @@ class MainActivity : AppCompatActivity() {
                     runOnUiThreadIfActive {
                         if (!isCurrentOperation(operationId)) return@runOnUiThreadIfActive
                         isInitialized = false
+                        setLLMGenerating(false)
                         llmStatusTextView.text = "Status: Initialization failed"
                         hideModelDownloadProgress()
+                        setLLMGenerating(false)
                         setLLMControlsEnabled(true)
                         finishModelOperation(operationId)
                     }
@@ -2029,7 +2072,9 @@ class MainActivity : AppCompatActivity() {
                 }
 
                 runOnUiThreadIfActive {
-                    if (isCurrentOperation(operationId)) llmStatusTextView.text = "Status: Generating..."
+                    if (!isCurrentOperation(operationId)) return@runOnUiThreadIfActive
+                    llmStatusTextView.text = "Status: Generating..."
+                    setLLMGenerating(true)
                 }
                 val processingTime = llmSample.chat(userInput, object : AiliaLLMSample.LLMListener {
                     override fun onToken(token: String) {
@@ -2045,13 +2090,14 @@ class MainActivity : AppCompatActivity() {
                     override fun onError(error: String) {
                         runOnUiThreadIfActive {
                             if (!isCurrentOperation(operationId)) return@runOnUiThreadIfActive
-                            llmStatusTextView.text = "Status: Error - $error"
+                            llmStatusTextView.text = llmErrorStatus(error)
                         }
                     }
                 })
                 runOnUiThreadIfActive {
                     if (!isCurrentOperation(operationId)) return@runOnUiThreadIfActive
                     isInitialized = true
+                    setLLMGenerating(false)
                     setLLMControlsEnabled(true)
                     hideModelDownloadProgress()
                     if (processingTime >= 0) {
@@ -2069,9 +2115,10 @@ class MainActivity : AppCompatActivity() {
                 Log.e("AILIA_Main", "LLM request failed", e)
                 runOnUiThreadIfActive {
                     if (!isCurrentOperation(operationId)) return@runOnUiThreadIfActive
+                    setLLMGenerating(false)
                     setLLMControlsEnabled(true)
                     hideModelDownloadProgress()
-                    llmStatusTextView.text = "Status: Error - ${e.message}"
+                    llmStatusTextView.text = llmErrorStatus(e.message ?: "unknown")
                     finishModelOperation(operationId)
                 }
             }
@@ -2080,6 +2127,10 @@ class MainActivity : AppCompatActivity() {
 
     private fun setupMultimodalLLMSendButton() {
         llmSendButton.setOnClickListener {
+            if (llmGenerating) {
+                stopLLMGeneration()
+                return@setOnClickListener
+            }
             val userInput = llmInputEditText.text.toString().trim()
             if (userInput.isEmpty()) {
                 llmStatusTextView.text = "Status: Please enter a question about the image"
@@ -2146,7 +2197,7 @@ class MainActivity : AppCompatActivity() {
                         override fun onError(error: String) {
                             runOnUiThreadIfActive {
                                 if (!isCurrentOperation(operationId)) return@runOnUiThreadIfActive
-                                llmStatusTextView.text = "Status: Error - $error"
+                                llmStatusTextView.text = llmErrorStatus(error)
                             }
                         }
                     }
@@ -2162,6 +2213,7 @@ class MainActivity : AppCompatActivity() {
                             if (!isCurrentOperation(operationId)) return@runOnUiThreadIfActive
                             isInitialized = false
                             llmStatusTextView.text = "Status: Initialization failed"
+                            setLLMGenerating(false)
                             setLLMControlsEnabled(true)
                             hideModelDownloadProgress()
                             finishModelOperation(operationId)
@@ -2169,10 +2221,14 @@ class MainActivity : AppCompatActivity() {
                         return@execute
                     }
 
+                    runOnUiThreadIfActive {
+                        if (isCurrentOperation(operationId)) setLLMGenerating(true)
+                    }
                     val processingTime = multimodalLLMSample.chatWithImage(imagePath, userInput, listener)
                     runOnUiThreadIfActive {
                         if (!isCurrentOperation(operationId)) return@runOnUiThreadIfActive
                         isInitialized = true
+                        setLLMGenerating(false)
                         setLLMControlsEnabled(true)
                         hideModelDownloadProgress()
                         if (processingTime >= 0) {
@@ -2187,9 +2243,10 @@ class MainActivity : AppCompatActivity() {
                     cameraFrame?.takeUnless(Bitmap::isRecycled)?.recycle()
                     runOnUiThreadIfActive {
                         if (!isCurrentOperation(operationId)) return@runOnUiThreadIfActive
+                        setLLMGenerating(false)
                         setLLMControlsEnabled(true)
                         hideModelDownloadProgress()
-                        llmStatusTextView.text = "Status: Error - ${e.message}"
+                        llmStatusTextView.text = llmErrorStatus(e.message ?: "unknown")
                         finishModelOperation(operationId)
                     }
                 }
@@ -2199,6 +2256,10 @@ class MainActivity : AppCompatActivity() {
     /** ALM(音声入力)の入力ソース切り替えと録音ボタンを設定する。 */
     private fun setupALMControls() {
         llmSendButton.setOnClickListener {
+            if (llmGenerating) {
+                stopLLMGeneration()
+                return@setOnClickListener
+            }
             val userInput = llmInputEditText.text.toString().trim()
             if (userInput.isEmpty()) {
                 llmStatusTextView.text = "Status: Please enter a prompt about the audio"
@@ -2365,7 +2426,7 @@ class MainActivity : AppCompatActivity() {
                     override fun onError(error: String) {
                         runOnUiThreadIfActive {
                             if (!isCurrentOperation(operationId)) return@runOnUiThreadIfActive
-                            llmStatusTextView.text = "Status: Error - $error"
+                            llmStatusTextView.text = llmErrorStatus(error)
                         }
                     }
                 }
@@ -2380,6 +2441,7 @@ class MainActivity : AppCompatActivity() {
                     runOnUiThreadIfActive {
                         if (!isCurrentOperation(operationId)) return@runOnUiThreadIfActive
                         isInitialized = false
+                        setLLMGenerating(false)
                         llmStatusTextView.text = "Status: Initialization failed"
                         setLLMControlsEnabled(true)
                         hideModelDownloadProgress()
@@ -2388,10 +2450,14 @@ class MainActivity : AppCompatActivity() {
                     return@execute
                 }
 
+                runOnUiThreadIfActive {
+                    if (isCurrentOperation(operationId)) setLLMGenerating(true)
+                }
                 val processingTime = almSample.chatWithMedia(audioPath, userInput, listener)
                 runOnUiThreadIfActive {
                     if (!isCurrentOperation(operationId)) return@runOnUiThreadIfActive
                     isInitialized = true
+                    setLLMGenerating(false)
                     setLLMControlsEnabled(true)
                     hideModelDownloadProgress()
                     if (processingTime >= 0) {
@@ -2404,9 +2470,10 @@ class MainActivity : AppCompatActivity() {
                 Log.e("AILIA_Main", "ALM request failed", e)
                 runOnUiThreadIfActive {
                     if (!isCurrentOperation(operationId)) return@runOnUiThreadIfActive
+                    setLLMGenerating(false)
                     setLLMControlsEnabled(true)
                     hideModelDownloadProgress()
-                    llmStatusTextView.text = "Status: Error - ${e.message}"
+                    llmStatusTextView.text = llmErrorStatus(e.message ?: "unknown")
                     finishModelOperation(operationId)
                 }
             }
