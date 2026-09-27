@@ -15,6 +15,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.*
 import androidx.appcompat.app.AppCompatActivity
+import androidx.appcompat.widget.SwitchCompat
 import androidx.camera.core.*
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
@@ -66,6 +67,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var llmEnvSpinner: Spinner
     private lateinit var llmBenchmarkButton: Button
     private lateinit var llmInputBar: LinearLayout
+    private lateinit var toolUseThinkingSwitch: SwitchCompat
     private lateinit var almInputModeRadioGroup: RadioGroup
     private lateinit var almWavRadioButton: RadioButton
     private lateinit var almMicRadioButton: RadioButton
@@ -127,6 +129,7 @@ class MainActivity : AppCompatActivity() {
     private val llmSample = AiliaLLMSample()
     private val multimodalLLMSample = AiliaMultimodalLLMSample(MultimodalMediaType.IMAGE)
     private val almSample = AiliaMultimodalLLMSample(MultimodalMediaType.AUDIO)
+    private val toolUseSample = AiliaToolUseSample()
     private val almRecorder = WavRecorder()
     private val onnxObjectDetectionSample by lazy { AiliaOnnxObjectDetectionSample(modelDirectory) }
     private val onnxClassificationSample by lazy { AiliaOnnxClassificationSample(modelDirectory) }
@@ -250,6 +253,7 @@ class MainActivity : AppCompatActivity() {
         LLM,
         MULTIMODAL_LLM,
         ALM,
+        TOOL_USE,
         SPEAKER_VERIFICATION,
         VOICE_FILTER,
     }
@@ -343,6 +347,7 @@ class MainActivity : AppCompatActivity() {
         llmEnvSpinner = findViewById(R.id.llmEnvSpinner)
         llmBenchmarkButton = findViewById(R.id.llmBenchmarkButton)
         llmInputBar = findViewById(R.id.llmInputBar)
+        toolUseThinkingSwitch = findViewById(R.id.toolUseThinkingSwitch)
         almInputModeRadioGroup = findViewById(R.id.almInputModeRadioGroup)
         almWavRadioButton = findViewById(R.id.almWavRadioButton)
         almMicRadioButton = findViewById(R.id.almMicRadioButton)
@@ -397,6 +402,7 @@ class MainActivity : AppCompatActivity() {
             "LLM",
             "VLM",
             "ALM",
+            "ToolUse",
             "SpeakerVerification",
             "VoiceFilter",
         )
@@ -794,7 +800,8 @@ class MainActivity : AppCompatActivity() {
                 selectedIndex = LLMModelType.values().indexOf(selectedLLMModelType)
                 LLMModelType.values().map { "${it.displayName} (Q4_K_M)" }.toTypedArray()
             }
-            AlgorithmType.MULTIMODAL_LLM, AlgorithmType.ALM -> arrayOf("Gemma 4 E2B (Q4_K_M)")
+            AlgorithmType.MULTIMODAL_LLM, AlgorithmType.ALM, AlgorithmType.TOOL_USE ->
+                arrayOf("Gemma 4 E2B (Q4_K_M)")
             AlgorithmType.SPEAKER_VERIFICATION -> {
                 selectedRuntime = "ONNX"
                 arrayOf("WeSpeaker ResNet34 (VoxCeleb) + Silero VAD v6")
@@ -822,7 +829,7 @@ class MainActivity : AppCompatActivity() {
         when (algorithm) {
             AlgorithmType.LLM -> setupLLMBackendSpinner()
             // VLM/ALMはGemma 4 E2B固定のため、そのモデルのQNN対応状況で選択肢を決める
-            AlgorithmType.MULTIMODAL_LLM, AlgorithmType.ALM ->
+            AlgorithmType.MULTIMODAL_LLM, AlgorithmType.ALM, AlgorithmType.TOOL_USE ->
                 setupLLMBackendSpinner(LLMModelType.GEMMA_4_E2B)
             else -> {}
         }
@@ -862,6 +869,7 @@ class MainActivity : AppCompatActivity() {
                     llmSample.release()
                     multimodalLLMSample.release()
                     almSample.release()
+                    toolUseSample.release()
                     isInitialized = false
                     llmChatContainer.removeAllViews()
                     setLLMControlsEnabled(true)
@@ -1120,7 +1128,8 @@ class MainActivity : AppCompatActivity() {
                 0
             }
 
-            AlgorithmType.LLM, AlgorithmType.MULTIMODAL_LLM, AlgorithmType.ALM -> {
+            AlgorithmType.LLM, AlgorithmType.MULTIMODAL_LLM, AlgorithmType.ALM,
+            AlgorithmType.TOOL_USE -> {
                 // LLM modes are handled asynchronously via the send button
                 0
             }
@@ -1153,6 +1162,7 @@ class MainActivity : AppCompatActivity() {
         llmChatContainer,
         llmStatusTextView,
         llmEnvSpinner,
+        toolUseThinkingSwitch,
         llmBenchmarkButton,
         almInputModeRadioGroup,
         almRecordButton,
@@ -1317,6 +1327,7 @@ class MainActivity : AppCompatActivity() {
             AlgorithmType.LLM to textLlmViews,
             AlgorithmType.MULTIMODAL_LLM to multimodalViews,
             AlgorithmType.ALM to almViews,
+            AlgorithmType.TOOL_USE to llmViews + setOf<View>(toolUseThinkingSwitch),
             AlgorithmType.SPEAKER_VERIFICATION to speakerVerificationViews,
             AlgorithmType.VOICE_FILTER to voiceFilterViews,
         )
@@ -1332,7 +1343,8 @@ class MainActivity : AppCompatActivity() {
         // LLM/VLM/ALMはStatusにPrefill/Decodeの計測結果を出すため、Processing Timeは表示しない
         val isChatAlgorithm = currentAlgorithm == AlgorithmType.LLM ||
             currentAlgorithm == AlgorithmType.MULTIMODAL_LLM ||
-            currentAlgorithm == AlgorithmType.ALM
+            currentAlgorithm == AlgorithmType.ALM ||
+            currentAlgorithm == AlgorithmType.TOOL_USE
         processingTimeTextView.visibility = if (isChatAlgorithm) View.GONE else View.VISIBLE
 
         // 表示切り替え時に必要なアルゴリズム固有の初期状態を設定する。
@@ -1361,6 +1373,13 @@ class MainActivity : AppCompatActivity() {
                 llmStatusTextView.text = "Status: Press Send to run"
                 setLLMControlsEnabled(true)
                 updateAlmInputVisibility()
+            }
+
+            AlgorithmType.TOOL_USE -> {
+                llmInputEditText.setText(AiliaToolUseSample.DEFAULT_PROMPT)
+                llmChatContainer.removeAllViews()
+                llmStatusTextView.text = "Status: Press Send to run"
+                setLLMControlsEnabled(true)
             }
 
             AlgorithmType.TEXT_TO_SPEECH -> {
@@ -1473,6 +1492,9 @@ class MainActivity : AppCompatActivity() {
             AlgorithmType.ALM -> {
                 setupALMControls()
             }
+            AlgorithmType.TOOL_USE -> {
+                setupToolUseSendButton()
+            }
             AlgorithmType.SPEAKER_VERIFICATION -> {
                 setupSpeakerVerificationControls()
             }
@@ -1507,6 +1529,7 @@ class MainActivity : AppCompatActivity() {
             multimodalLLMSample.release()
             almRecorder.cancelRecording()
             almSample.release()
+            toolUseSample.release()
         } catch (e: Exception) {
             Log.e("AILIA_Error", "Error releasing algorithms: ${e.message}")
         }
@@ -1768,7 +1791,8 @@ class MainActivity : AppCompatActivity() {
                     return
                 }
 
-                AlgorithmType.LLM, AlgorithmType.MULTIMODAL_LLM, AlgorithmType.ALM -> {
+                AlgorithmType.LLM, AlgorithmType.MULTIMODAL_LLM, AlgorithmType.ALM,
+                AlgorithmType.TOOL_USE -> {
                     // モデルダウンロードはSend押下時(initialize*Async)まで遅延する
                     return
                 }
@@ -1888,6 +1912,7 @@ class MainActivity : AppCompatActivity() {
             AlgorithmType.LLM -> llmSample.cancelGeneration()
             AlgorithmType.MULTIMODAL_LLM -> multimodalLLMSample.cancelGeneration()
             AlgorithmType.ALM -> almSample.cancelGeneration()
+            AlgorithmType.TOOL_USE -> toolUseSample.cancelGeneration()
             else -> {}
         }
     }
@@ -1901,6 +1926,7 @@ class MainActivity : AppCompatActivity() {
         setLLMControlsEnabled(enabled && !almRecorder.isRecording)
         // 生成中にバックエンドや入力ソースを変えるとモデルを解放してしまうため止める
         llmEnvSpinner.isEnabled = enabled
+        toolUseThinkingSwitch.isEnabled = enabled
         almRecordButton.isEnabled = enabled
         almInputModeRadioGroup.isEnabled = enabled
         for (index in 0 until almInputModeRadioGroup.childCount) {
@@ -2064,7 +2090,6 @@ class MainActivity : AppCompatActivity() {
                         setLLMGenerating(false)
                         llmStatusTextView.text = "Status: Initialization failed"
                         hideModelDownloadProgress()
-                        setLLMGenerating(false)
                         setLLMControlsEnabled(true)
                         finishModelOperation(operationId)
                     }
@@ -2113,6 +2138,178 @@ class MainActivity : AppCompatActivity() {
                 }
             } catch (e: Exception) {
                 Log.e("AILIA_Main", "LLM request failed", e)
+                runOnUiThreadIfActive {
+                    if (!isCurrentOperation(operationId)) return@runOnUiThreadIfActive
+                    setLLMGenerating(false)
+                    setLLMControlsEnabled(true)
+                    hideModelDownloadProgress()
+                    llmStatusTextView.text = llmErrorStatus(e.message ?: "unknown")
+                    finishModelOperation(operationId)
+                }
+            }
+        }
+    }
+
+    private fun setupToolUseSendButton() {
+        llmSendButton.setOnClickListener {
+            if (llmGenerating) {
+                stopLLMGeneration()
+                return@setOnClickListener
+            }
+            val userInput = llmInputEditText.text.toString().trim()
+            if (userInput.isEmpty()) {
+                llmStatusTextView.text = "Status: Please enter a message"
+                return@setOnClickListener
+            }
+            performToolUseChat(userInput)
+        }
+    }
+
+    /**
+     * Tool Useのチャット。ツール呼び出しはLLMの応答とは別の吹き出しで表示し、
+     * ツール実行後の再生成は新しいassistantの吹き出しに流す。
+     */
+    private fun performToolUseChat(userInput: String) {
+        val operationId = beginModelOperation() ?: return
+        val needsInitialization = !isInitialized
+        val backend = selectedLLMBackend
+        val thinking = toolUseThinkingSwitch.isChecked
+        val generatingStatus = "Status: Generating... (Thinking: ${if (thinking) "ON" else "OFF"})"
+        setLLMControlsEnabled(false)
+        llmStatusTextView.text = if (needsInitialization) "Status: Initializing..." else generatingStatus
+        addChatBubble(userInput, isUser = true)
+        // UIスレッドからのみ参照する。ツール実行後のターンでは新しい吹き出しに差し替える。
+        var assistantBubble = addChatBubble("", isUser = false)
+        scrollResultToBottom()
+        llmInputEditText.setText("")
+
+        cameraExecutor.execute {
+            try {
+                val initialized = if (needsInitialization) {
+                    toolUseSample.backend = backend
+                    val modelFileName = toolUseSample.modelFileName()
+                    toolUseSample.initialize(this@MainActivity, object : ModelDownloader.DownloadListener {
+                        override fun onProgress(bytesDownloaded: Long, totalBytes: Long) {
+                            if (!isCurrentOperation(operationId)) return
+                            runOnUiThreadIfActive {
+                                if (!isCurrentOperation(operationId)) return@runOnUiThreadIfActive
+                                showModelDownloadProgress(modelFileName, bytesDownloaded, totalBytes)
+                            }
+                        }
+
+                        override fun onComplete(file: File) = Unit
+
+                        override fun onError(error: String) {
+                            runOnUiThreadIfActive {
+                                if (!isCurrentOperation(operationId)) return@runOnUiThreadIfActive
+                                llmStatusTextView.text = "Status: Download error - $error"
+                            }
+                        }
+                    })
+                } else {
+                    true
+                }
+
+                if (!initialized || !isCurrentOperation(operationId)) {
+                    runOnUiThreadIfActive {
+                        if (!isCurrentOperation(operationId)) return@runOnUiThreadIfActive
+                        isInitialized = false
+                        setLLMGenerating(false)
+                        llmStatusTextView.text = "Status: Initialization failed"
+                        hideModelDownloadProgress()
+                        setLLMControlsEnabled(true)
+                        finishModelOperation(operationId)
+                    }
+                    return@execute
+                }
+
+                runOnUiThreadIfActive {
+                    if (!isCurrentOperation(operationId)) return@runOnUiThreadIfActive
+                    hideModelDownloadProgress()
+                    llmStatusTextView.text = generatingStatus
+                    setLLMGenerating(true)
+                }
+                var turnCount = 0
+                val processingTime = toolUseSample.chat(userInput, thinking, object : AiliaToolUseSample.ToolUseListener {
+                    override fun onDownloadProgress(fileName: String, bytesDownloaded: Long, totalBytes: Long) = Unit
+
+                    override fun onStatus(status: String) {
+                        runOnUiThreadIfActive {
+                            if (!isCurrentOperation(operationId)) return@runOnUiThreadIfActive
+                            llmStatusTextView.text = "Status: $status"
+                        }
+                    }
+
+                    override fun onTurnStart() {
+                        val firstTurn = turnCount++ == 0
+                        if (firstTurn) return
+                        runOnUiThreadIfActive {
+                            if (!isCurrentOperation(operationId)) return@runOnUiThreadIfActive
+                            llmStatusTextView.text = generatingStatus
+                            assistantBubble = addChatBubble("", isUser = false)
+                            scrollResultToBottom()
+                        }
+                    }
+
+                    override fun onToken(token: String) {
+                        runOnUiThreadIfActive {
+                            if (!isCurrentOperation(operationId)) return@runOnUiThreadIfActive
+                            assistantBubble.append(token)
+                            scrollResultToBottom()
+                        }
+                    }
+
+                    override fun onTurnComplete(content: String, reasoning: String) {
+                        runOnUiThreadIfActive {
+                            if (!isCurrentOperation(operationId)) return@runOnUiThreadIfActive
+                            // 生のプレビューには制御トークンやツール呼び出し構文が含まれるため、
+                            // SDKが解析した推論過程と本文に置き換える
+                            val text = listOf(
+                                reasoning.trim().takeIf { it.isNotEmpty() }?.let { "\uD83D\uDCAD $it" },
+                                content.trim().takeIf { it.isNotEmpty() },
+                            ).filterNotNull().joinToString("\n\n")
+                            if (text.isEmpty()) {
+                                // ツール呼び出しだけのターンは、次のツール吹き出しで表示する
+                                llmChatContainer.removeView(assistantBubble)
+                            } else {
+                                assistantBubble.text = text
+                            }
+                            scrollResultToBottom()
+                        }
+                    }
+
+                    override fun onToolCall(name: String, arguments: String, result: String) {
+                        runOnUiThreadIfActive {
+                            if (!isCurrentOperation(operationId)) return@runOnUiThreadIfActive
+                            addChatBubble("\uD83D\uDD27 $name($arguments)\n\u2192 $result", isUser = false)
+                            scrollResultToBottom()
+                        }
+                    }
+
+                    override fun onComplete(fullResponse: String) = Unit
+
+                    override fun onError(error: String) {
+                        runOnUiThreadIfActive {
+                            if (!isCurrentOperation(operationId)) return@runOnUiThreadIfActive
+                            llmStatusTextView.text = llmErrorStatus(error)
+                        }
+                    }
+                })
+                runOnUiThreadIfActive {
+                    if (!isCurrentOperation(operationId)) return@runOnUiThreadIfActive
+                    isInitialized = true
+                    setLLMGenerating(false)
+                    setLLMControlsEnabled(true)
+                    hideModelDownloadProgress()
+                    if (processingTime >= 0) {
+                        llmStatusTextView.text =
+                            "Status: Complete (${processingTime} ms) - ${toolUseSample.airConditionerStatus()}"
+                    }
+                    scrollResultToBottom()
+                    finishModelOperation(operationId)
+                }
+            } catch (e: Exception) {
+                Log.e("AILIA_Main", "Tool use request failed", e)
                 runOnUiThreadIfActive {
                     if (!isCurrentOperation(operationId)) return@runOnUiThreadIfActive
                     setLLMGenerating(false)
@@ -4032,8 +4229,8 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
-        // ALMはSend押下時にダウンロード+初期化する
-        if (currentAlgorithm == AlgorithmType.ALM) {
+        // ALM / ToolUseはSend押下時にダウンロード+初期化する
+        if (currentAlgorithm == AlgorithmType.ALM || currentAlgorithm == AlgorithmType.TOOL_USE) {
             return
         }
 
@@ -4328,6 +4525,7 @@ class MainActivity : AppCompatActivity() {
         llmSample.cancelGeneration()
         multimodalLLMSample.cancelGeneration()
         almSample.cancelGeneration()
+        toolUseSample.cancelGeneration()
         almRecorder.cancelRecording()
         recTimerHandler.removeCallbacksAndMessages(null)
         stopMicRecording(finalize = false)

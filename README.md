@@ -38,6 +38,7 @@ Models bundled in `res/raw` run without a download. Other models are downloaded 
 | LLM | [Gemma 4 E2B / E4B / Gemma 2 2B](app/src/main/java/jp/axinc/ailia_kotlin/AiliaLLMSample.kt) | ailia LLM (CPU / QNN) |
 | Multimodal LLM (VLM) | [Gemma 4 E2B + mmproj](app/src/main/java/jp/axinc/ailia_kotlin/AiliaMultimodalLLMSample.kt) | ailia LLM (CPU / QNN) |
 | Audio LLM (ALM) | [Gemma 4 E2B + mmproj](app/src/main/java/jp/axinc/ailia_kotlin/AiliaMultimodalLLMSample.kt) | ailia LLM (CPU / QNN) |
+| Tool Use | [Gemma 4 E2B + air conditioner tool](app/src/main/java/jp/axinc/ailia_kotlin/AiliaToolUseSample.kt) | ailia LLM (CPU / QNN) |
 
 ## Running the LLM samples on the NPU (QNN)
 
