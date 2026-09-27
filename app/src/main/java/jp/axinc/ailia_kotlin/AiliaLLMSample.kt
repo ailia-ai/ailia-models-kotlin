@@ -8,11 +8,23 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Available LLM models (URLs follow ailia-models-flutter: /gemma/<fileName>).
+ *
+ * @property mmprojFileName CPU(GGUF)で画像/音声を入力するためのmmproj。対応しないモデルはnull。
  */
-enum class LLMModelType(val displayName: String, val fileName: String) {
-    GEMMA_4_E2B("Gemma 4 E2B", "gemma-4-E2B-it-Q4_K_M.gguf"),
-    GEMMA_4_E4B("Gemma 4 E4B", "gemma-4-E4B-it-Q4_K_M.gguf"),
+enum class LLMModelType(
+    val displayName: String,
+    val fileName: String,
+    val mmprojFileName: String? = null,
+) {
+    GEMMA_4_E2B("Gemma 4 E2B", "gemma-4-E2B-it-Q4_K_M.gguf", "gemma-4-E2B-it-mmproj-F16.gguf"),
+    GEMMA_4_E4B("Gemma 4 E4B", "gemma-4-E4B-it-Q4_K_M.gguf", "gemma-4-E4B-it-mmproj-F16.gguf"),
     GEMMA_2_2B("Gemma 2 2B", "gemma-2-2b-it-Q4_K_M.gguf"),
+    ;
+
+    companion object {
+        /** VLM / ALM / ToolUseで選べるモデル(画像・音声入力とツール呼び出しに対応するGemma 4)。 */
+        val GEMMA_4_MODELS = listOf(GEMMA_4_E2B, GEMMA_4_E4B)
+    }
 }
 
 /**

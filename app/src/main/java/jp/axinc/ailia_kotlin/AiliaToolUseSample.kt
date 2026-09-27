@@ -11,7 +11,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 /**
  * Sample class demonstrating ailia LLM Tool Use (Function Calling).
  *
- * Gemma 4 E2Bに「エアコンの温度を設定するツール」を渡し、
+ * Gemma 4 (E2B / E4B)に「エアコンの温度を設定するツール」を渡し、
  * 「エアコンの温度を20度にしてください」のような指示からツール呼び出しを生成させる。
  *
  * Tool Useでは最初のターンからJSON履歴([AiliaLLM.setPromptJson])を使用し、
@@ -30,6 +30,9 @@ class AiliaToolUseSample {
     /** 実行バックエンド。QNNは対応SoCの場合のみ選択できる。 */
     var backend: LLMBackend = LLMBackend.CPU
 
+    /** 使用するモデル。ツール呼び出しに対応するGemma 4のみ。 */
+    var modelType: LLMModelType = LLMModelType.GEMMA_4_E2B
+
     /** ツールで設定したエアコンの温度(摂氏)。未設定ならnull。 */
     var airConditionerTemperature: Double? = null
         private set
@@ -44,8 +47,8 @@ class AiliaToolUseSample {
         /** ツール呼び出しと結果返却の往復回数の上限。 */
         private const val MAX_TOOL_TURNS = 8
 
-        /** Tool Useで使用するモデル。 */
-        val MODEL_TYPE = LLMModelType.GEMMA_4_E2B
+        /** Tool Useのサンプリング温度。 */
+        private const val TEMPERATURE = 0.0f
 
         /** エアコンの温度を設定するツールの名前。 */
         const val TOOL_NAME = "set_air_conditioner_temperature"
@@ -103,16 +106,16 @@ class AiliaToolUseSample {
 
             val qnnFileName = qnnFileNameOrNull()
             if (backend == LLMBackend.QNN && qnnFileName == null) {
-                Log.e(TAG, "QNN model is not available for ${MODEL_TYPE.displayName} on ${QnnSupport.socName}")
+                Log.e(TAG, "QNN model is not available for ${modelType.displayName} on ${QnnSupport.socName}")
                 return false
             }
 
-            val fileName = qnnFileName ?: MODEL_TYPE.fileName
-            Log.i(TAG, "Downloading ${MODEL_TYPE.displayName} model ($fileName) for ${backend.displayName}...")
+            val fileName = qnnFileName ?: modelType.fileName
+            Log.i(TAG, "Downloading ${modelType.displayName} model ($fileName) for ${backend.displayName}...")
             val modelFile = if (qnnFileName != null) {
                 ModelDownloader.downloadQnnLLMModel(context, qnnFileName, progressListener)
             } else {
-                ModelDownloader.downloadLLMModel(context, MODEL_TYPE.fileName, progressListener)
+                ModelDownloader.downloadLLMModel(context, modelType.fileName, progressListener)
             }
             if (modelFile == null) {
                 Log.e(TAG, "Failed to download model")
@@ -125,7 +128,8 @@ class AiliaToolUseSample {
 
             Log.i(TAG, "Opening model file: $modelPath")
             llm!!.openModelFile(modelPath!!, if (qnnFileName != null) N_CTX_QNN else N_CTX)
-            llm!!.setSamplingParams(40, 0.9f, 0.4f, 1234)
+            // ツール呼び出しの引数がぶれないよう、Tool Useではtemperatureを0にする
+            llm!!.setSamplingParams(40, 0.9f, TEMPERATURE, 1234)
 
             llm!!.setTools(TOOLS_JSON)
 
@@ -148,15 +152,15 @@ class AiliaToolUseSample {
         return if (qnnFileName != null) {
             ModelDownloader.isQnnLLMModelDownloaded(context, qnnFileName)
         } else {
-            ModelDownloader.isLLMModelDownloaded(context, MODEL_TYPE.fileName)
+            ModelDownloader.isLLMModelDownloaded(context, modelType.fileName)
         }
     }
 
     /** 現在のバックエンドでダウンロードするモデルファイル名。 */
-    fun modelFileName(): String = qnnFileNameOrNull() ?: MODEL_TYPE.fileName
+    fun modelFileName(): String = qnnFileNameOrNull() ?: modelType.fileName
 
     private fun qnnFileNameOrNull(): String? =
-        if (backend == LLMBackend.QNN) QnnSupport.llmQnnFileName(MODEL_TYPE) else null
+        if (backend == LLMBackend.QNN) QnnSupport.llmQnnFileName(modelType) else null
 
     /**
      * Runs one user request, executing tool calls until the model answers.
@@ -214,6 +218,7 @@ class AiliaToolUseSample {
 
                 // 生成が不完全な場合はここで例外になる。ツールは実行しない。
                 val response = JSONObject(model.getResponseJson())
+                Log.d(TAG, "Response JSON (turn $turn): $response")
                 conversationHistory.put(response)
                 listener?.onTurnComplete(
                     response.optString("content"),

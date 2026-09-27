@@ -47,16 +47,18 @@ object QnnSupport {
         "sm7775", "sm8635", "sm8635p", "sm8735", "sm8735p", "ssg2115p", "ssg2125p", "sxr1230p",
     )
 
-    /** 変換済みQNNモデルを公開しているSoC。 */
-    private val LLM_SUPPORTED_SOCS = setOf("sm8475", "sm7635")
-
     /**
-     * QNNモデルを公開しているLLMモデルと、そのファイル名の接頭辞。
+     * 変換済みQNNモデルのファイル名の接頭辞と、そのモデルを使えるSoC。
      * ファイル名は "<prefix>-<soc>.qnn" (画像/音声エンコーダは "<prefix>-<soc>-mmproj.qnn")。
-     * Gemma 4 E4Bは変換済みモデルが未公開のため、公開後にここへ追加する。
+     *
+     * Gemma 4 E4BはHexagon v69 (sm8475)のContext Binaryの2GB制約に収まらないため、
+     * v73のsm7635のみで使用する。ここにないモデル/SoCの組み合わせはCPUで実行する。
      */
-    private val LLM_FILE_PREFIXES = mapOf(
-        LLMModelType.GEMMA_4_E2B to "gemma4-e2b",
+    private data class QnnLlmModel(val filePrefix: String, val socs: Set<String>)
+
+    private val LLM_QNN_MODELS = mapOf(
+        LLMModelType.GEMMA_4_E2B to QnnLlmModel("gemma4-e2b", setOf("sm8475", "sm7635")),
+        LLMModelType.GEMMA_4_E4B to QnnLlmModel("gemma4-e4b", setOf("sm7635")),
     )
 
     /** ailia LLMのAPIで取得したSoC名(例: "sm8475")。QNNを利用できない端末ではnull。 */
@@ -96,8 +98,10 @@ object QnnSupport {
         modelType: LLMModelType,
         mmproj: Boolean = false,
     ): String? {
-        if (soc == null || soc !in LLM_SUPPORTED_SOCS) return null
-        val prefix = LLM_FILE_PREFIXES[modelType] ?: return null
+        if (soc == null) return null
+        val model = LLM_QNN_MODELS[modelType] ?: return null
+        if (soc !in model.socs) return null
+        val prefix = model.filePrefix
         return if (mmproj) "$prefix-$soc-mmproj.qnn" else "$prefix-$soc.qnn"
     }
 

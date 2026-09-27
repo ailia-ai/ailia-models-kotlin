@@ -36,13 +36,15 @@ Models bundled in `res/raw` run without a download. Other models are downloaded 
 | Voice Filtering | [VoiceFilter + dynamic d-vector embedder + Silero VAD v6](app/src/main/java/jp/axinc/ailia_kotlin/AiliaVoiceFilterSample.kt) | ailia SDK |
 | Text to Speech | [GPT-SoVITS V1 / V2 / V3 / V2-Pro / V2-Pro Distill (Small / Base)](app/src/main/java/jp/axinc/ailia_kotlin/AiliaVoiceSample.kt) | ailia AI Voice |
 | LLM | [Gemma 4 E2B / E4B / Gemma 2 2B](app/src/main/java/jp/axinc/ailia_kotlin/AiliaLLMSample.kt) | ailia LLM (CPU / QNN) |
-| Multimodal LLM (VLM) | [Gemma 4 E2B + mmproj](app/src/main/java/jp/axinc/ailia_kotlin/AiliaMultimodalLLMSample.kt) | ailia LLM (CPU / QNN) |
-| Audio LLM (ALM) | [Gemma 4 E2B + mmproj](app/src/main/java/jp/axinc/ailia_kotlin/AiliaMultimodalLLMSample.kt) | ailia LLM (CPU / QNN) |
-| Tool Use | [Gemma 4 E2B + air conditioner tool](app/src/main/java/jp/axinc/ailia_kotlin/AiliaToolUseSample.kt) | ailia LLM (CPU / QNN) |
+| Multimodal LLM (VLM) | [Gemma 4 E2B / E4B + mmproj](app/src/main/java/jp/axinc/ailia_kotlin/AiliaMultimodalLLMSample.kt) | ailia LLM (CPU / QNN) |
+| Audio LLM (ALM) | [Gemma 4 E2B / E4B + mmproj](app/src/main/java/jp/axinc/ailia_kotlin/AiliaMultimodalLLMSample.kt) | ailia LLM (CPU / QNN) |
+| Tool Use | [Gemma 4 E2B / E4B + air conditioner tool](app/src/main/java/jp/axinc/ailia_kotlin/AiliaToolUseSample.kt) | ailia LLM (CPU / QNN) |
 
 ## Running the LLM samples on the NPU (QNN)
 
-The LLM / VLM / ALM samples can run Gemma 4 E2B on the Qualcomm NPU through the ailia LLM QNN backend.
+The LLM / VLM / ALM / Tool Use samples can run Gemma 4 on the Qualcomm NPU through the ailia LLM QNN backend.
+Gemma 4 E2B has QNN models for `sm8475` and `sm7635`. Gemma 4 E4B runs on QNN only on `sm7635`, because it
+does not fit the 2 GB context binary limit of Hexagon v69 (`sm8475`); on other SoCs E4B selects CPU automatically.
 The `CPU` / `QNN` selector next to the Send button defaults to `QNN (NPU) <soc>`, and that entry appears only when
 [`AiliaLLM.getQNNModelName()`](ailia-llm-jni/src/main/kotlin/axip/ailia_llm/Ailiallm.kt) reports a SoC that has a
 converted model (currently `sm8475` and `sm7635`, see

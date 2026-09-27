@@ -181,8 +181,15 @@ class MainActivity : AppCompatActivity() {
     private var selectedSpeechModelType: SpeechModelType = SpeechModelType.SENSEVOICE_SMALL
     private var selectedSpeechLanguage: String = "ja"
     private var selectedLLMModelType: LLMModelType = LLMModelType.GEMMA_4_E2B
+    /** VLM / ALM / ToolUseで使うモデル。Gemma 4のみ選べる。 */
+    private var selectedGemma4ModelType: LLMModelType = LLMModelType.GEMMA_4_E2B
     // 既定はQNN(NPU)。QNNモデルがない端末/モデルではsetupLLMBackendSpinnerでCPUに落ちる
     private var selectedLLMBackend: LLMBackend = LLMBackend.QNN
+    /**
+     * ユーザーが選んだバックエンド。モデルにQNN版がない場合は一時的にCPUで実行し、
+     * QNN版のあるモデルに戻したときはこの選択に戻す。
+     */
+    private var preferredLLMBackend: LLMBackend = LLMBackend.QNN
     /** 生成中かどうか。生成中はSendボタンをStopボタンとして使う。 */
     private var llmGenerating = false
 
@@ -800,8 +807,10 @@ class MainActivity : AppCompatActivity() {
                 selectedIndex = LLMModelType.values().indexOf(selectedLLMModelType)
                 LLMModelType.values().map { "${it.displayName} (Q4_K_M)" }.toTypedArray()
             }
-            AlgorithmType.MULTIMODAL_LLM, AlgorithmType.ALM, AlgorithmType.TOOL_USE ->
-                arrayOf("Gemma 4 E2B (Q4_K_M)")
+            AlgorithmType.MULTIMODAL_LLM, AlgorithmType.ALM, AlgorithmType.TOOL_USE -> {
+                selectedIndex = LLMModelType.GEMMA_4_MODELS.indexOf(selectedGemma4ModelType)
+                LLMModelType.GEMMA_4_MODELS.map { "${it.displayName} (Q4_K_M)" }.toTypedArray()
+            }
             AlgorithmType.SPEAKER_VERIFICATION -> {
                 selectedRuntime = "ONNX"
                 arrayOf("WeSpeaker ResNet34 (VoxCeleb) + Silero VAD v6")
@@ -828,9 +837,9 @@ class MainActivity : AppCompatActivity() {
 
         when (algorithm) {
             AlgorithmType.LLM -> setupLLMBackendSpinner()
-            // VLM/ALMはGemma 4 E2B固定のため、そのモデルのQNN対応状況で選択肢を決める
+            // 選んだモデルのQNN対応状況で選択肢を決める
             AlgorithmType.MULTIMODAL_LLM, AlgorithmType.ALM, AlgorithmType.TOOL_USE ->
-                setupLLMBackendSpinner(LLMModelType.GEMMA_4_E2B)
+                setupLLMBackendSpinner(selectedGemma4ModelType)
             else -> {}
         }
     }
@@ -843,10 +852,8 @@ class MainActivity : AppCompatActivity() {
         val backends = LLMBackend.values().filter {
             it != LLMBackend.QNN || QnnSupport.isLLMQnnAvailable(modelType)
         }
-        if (selectedLLMBackend !in backends) {
-            // QNNモデルがない場合はCPUにフォールバックする
-            selectedLLMBackend = backends.first()
-        }
+        // 希望のバックエンドが使えないモデル(QNN版のないE4Bなど)ではCPUを自動で選ぶ
+        selectedLLMBackend = if (preferredLLMBackend in backends) preferredLLMBackend else backends.first()
         val items = backends.map { backend ->
             when (backend) {
                 // 使用するモデルファイルが分かるようにSoC名を併記する
@@ -865,6 +872,7 @@ class MainActivity : AppCompatActivity() {
                 val newBackend = backends[position]
                 if (newBackend != selectedLLMBackend) {
                     selectedLLMBackend = newBackend
+                    preferredLLMBackend = newBackend
                     // バックエンド切り替え時は解放のみ(ダウンロードはSend押下時)
                     llmSample.release()
                     multimodalLLMSample.release()
@@ -1004,6 +1012,21 @@ class MainActivity : AppCompatActivity() {
                     llmStatusTextView.text = "Status: Press Send to run"
                     // モデルによってQNNモデルの有無が変わるためバックエンド選択を作り直す
                     setupLLMBackendSpinner()
+                }
+            }
+            AlgorithmType.MULTIMODAL_LLM, AlgorithmType.ALM, AlgorithmType.TOOL_USE -> {
+                val newType = LLMModelType.GEMMA_4_MODELS[position]
+                if (newType != selectedGemma4ModelType) {
+                    selectedGemma4ModelType = newType
+                    // モデル切り替え時は解放のみ(ダウンロードはSend押下時)
+                    multimodalLLMSample.release()
+                    almSample.release()
+                    toolUseSample.release()
+                    isInitialized = false
+                    llmChatContainer.removeAllViews()
+                    setLLMControlsEnabled(true)
+                    llmStatusTextView.text = "Status: Press Send to run"
+                    setupLLMBackendSpinner(newType)
                 }
             }
             else -> {}
@@ -2173,6 +2196,7 @@ class MainActivity : AppCompatActivity() {
         val operationId = beginModelOperation() ?: return
         val needsInitialization = !isInitialized
         val backend = selectedLLMBackend
+        val modelType = selectedGemma4ModelType
         val thinking = toolUseThinkingSwitch.isChecked
         val generatingStatus = "Status: Generating... (Thinking: ${if (thinking) "ON" else "OFF"})"
         setLLMControlsEnabled(false)
@@ -2187,6 +2211,7 @@ class MainActivity : AppCompatActivity() {
             try {
                 val initialized = if (needsInitialization) {
                     toolUseSample.backend = backend
+                    toolUseSample.modelType = modelType
                     val modelFileName = toolUseSample.modelFileName()
                     toolUseSample.initialize(this@MainActivity, object : ModelDownloader.DownloadListener {
                         override fun onProgress(bytesDownloaded: Long, totalBytes: Long) {
@@ -2341,6 +2366,7 @@ class MainActivity : AppCompatActivity() {
             val operationId = beginModelOperation() ?: return
             val needsInitialization = !isInitialized
             val backend = selectedLLMBackend
+            val modelType = selectedGemma4ModelType
             setLLMControlsEnabled(false)
             processingTimeTextView.text = "Processing Time: -- ms"
             llmStatusTextView.text = if (needsInitialization) "Status: Initializing..." else "Status: Generating..."
@@ -2401,6 +2427,7 @@ class MainActivity : AppCompatActivity() {
 
                     val initialized = if (needsInitialization) {
                         multimodalLLMSample.backend = backend
+                        multimodalLLMSample.modelType = modelType
                         multimodalLLMSample.initialize(this@MainActivity, listener)
                     } else {
                         true
@@ -2584,6 +2611,7 @@ class MainActivity : AppCompatActivity() {
         val operationId = beginModelOperation() ?: return
         val needsInitialization = !isInitialized
         val backend = selectedLLMBackend
+        val modelType = selectedGemma4ModelType
         setLLMControlsEnabled(false)
         processingTimeTextView.text = "Processing Time: -- ms"
         llmStatusTextView.text = if (needsInitialization) "Status: Initializing..." else "Status: Generating..."
@@ -2630,6 +2658,7 @@ class MainActivity : AppCompatActivity() {
 
                 val initialized = if (needsInitialization) {
                     almSample.backend = backend
+                    almSample.modelType = modelType
                     almSample.initialize(this@MainActivity, listener)
                 } else {
                     true

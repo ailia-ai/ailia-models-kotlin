@@ -29,7 +29,7 @@ enum class MultimodalMediaType(val mediaType: String, val systemPrompt: String) 
 /**
  * Sample class demonstrating ailia Multimodal LLM inference (VLM / ALM).
  *
- * Gemma 4 E2Bをテキストモデルとして使い、mmprojで画像または音声を入力する。
+ * Gemma 4 (E2B / E4B)をテキストモデルとして使い、mmprojで画像または音声を入力する。
  * バックエンドにQNNを選ぶと、SoC固有の変換済みモデル(.qnn)をNPUで実行する。
  */
 class AiliaMultimodalLLMSample(
@@ -47,21 +47,15 @@ class AiliaMultimodalLLMSample(
     /** 実行バックエンド。QNNは対応SoCの場合のみ選択できる。 */
     var backend: LLMBackend = LLMBackend.CPU
 
+    /** 使用するモデル。mmprojを持つGemma 4のみ。 */
+    var modelType: LLMModelType = LLMModelType.GEMMA_4_E2B
+
     companion object {
         private const val TAG = "AiliaMultimodalLLM"
         private const val N_CTX = 8192 // Context window size
         // QNNモデルはコンテキスト長が変換時に固定されるため、0を指定してモデル内の値を使う
         private const val N_CTX_QNN = 0
         private const val MAX_GENERATION_STEPS = 4096
-
-        /** CPU(GGUF)で使用するGemma 4 E2Bのテキストモデル。 */
-        const val GGUF_MODEL_FILE = "gemma-4-E2B-it-Q4_K_M.gguf"
-
-        /** CPU(GGUF)で使用するGemma 4 E2Bの画像/音声エンコーダ(mmproj)。 */
-        const val GGUF_PROJECTOR_FILE = "gemma-4-E2B-it-mmproj-F16.gguf"
-
-        /** QNNモデルの対象となるLLMモデル。 */
-        private val QNN_MODEL_TYPE = LLMModelType.GEMMA_4_E2B
     }
 
     interface MultimodalLLMListener {
@@ -73,7 +67,7 @@ class AiliaMultimodalLLMSample(
     }
 
     /**
-     * Downloads and initializes the Gemma 4 E2B multimodal model.
+     * Downloads and initializes the selected Gemma 4 multimodal model ([modelType]).
      * This is a blocking operation that should be called on a background thread.
      *
      * @param context The Android context
@@ -92,8 +86,11 @@ class AiliaMultimodalLLMSample(
             val useQnn = backend == LLMBackend.QNN
             val modelFileName = modelFileName()
             val projectorFileName = projectorFileName()
-            if (useQnn && (modelFileName == null || projectorFileName == null)) {
-                listener?.onError("QNN model is not available on this SoC")
+            if (modelFileName == null || projectorFileName == null) {
+                listener?.onError(
+                    if (useQnn) "QNN model is not available on this SoC"
+                    else "${modelType.displayName} does not support image or audio input"
+                )
                 return false
             }
 
@@ -168,16 +165,16 @@ class AiliaMultimodalLLMSample(
         }
     }
 
-    /** 現在のバックエンドで使用するテキストモデルのファイル名。QNN未対応SoCではnull。 */
+    /** 現在のバックエンドで使用するテキストモデルのファイル名。QNN未対応の組み合わせではnull。 */
     fun modelFileName(): String? = when (backend) {
-        LLMBackend.CPU -> GGUF_MODEL_FILE
-        LLMBackend.QNN -> QnnSupport.llmQnnFileName(QNN_MODEL_TYPE)
+        LLMBackend.CPU -> modelType.fileName
+        LLMBackend.QNN -> QnnSupport.llmQnnFileName(modelType)
     }
 
-    /** 現在のバックエンドで使用するmmprojのファイル名。QNN未対応SoCではnull。 */
+    /** 現在のバックエンドで使用するmmprojのファイル名。QNN未対応の組み合わせではnull。 */
     fun projectorFileName(): String? = when (backend) {
-        LLMBackend.CPU -> GGUF_PROJECTOR_FILE
-        LLMBackend.QNN -> QnnSupport.llmQnnMmprojFileName(QNN_MODEL_TYPE)
+        LLMBackend.CPU -> modelType.mmprojFileName
+        LLMBackend.QNN -> QnnSupport.llmQnnMmprojFileName(modelType)
     }
 
     private fun downloadModelFile(
