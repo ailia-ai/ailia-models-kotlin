@@ -36,7 +36,18 @@ Models bundled in `res/raw` run without a download. Other models are downloaded 
 | Voice Filtering | [VoiceFilter + dynamic d-vector embedder + Silero VAD v6](app/src/main/java/jp/axinc/ailia_kotlin/AiliaVoiceFilterSample.kt) | ailia SDK |
 | Text to Speech | [GPT-SoVITS V1 / V2 / V3 / V2-Pro / V2-Pro Distill (Small / Base)](app/src/main/java/jp/axinc/ailia_kotlin/AiliaVoiceSample.kt) | ailia AI Voice |
 | LLM | [Gemma 4 E2B / E4B / Gemma 2 2B](app/src/main/java/jp/axinc/ailia_kotlin/AiliaLLMSample.kt) | ailia LLM |
-| Multimodal LLM | [Gemma 3 4B](app/src/main/java/jp/axinc/ailia_kotlin/AiliaMultimodalLLMSample.kt) | ailia LLM |
+| Multimodal LLM (VLM) | [Gemma 4 E2B / E4B + mmproj](app/src/main/java/jp/axinc/ailia_kotlin/AiliaMultimodalLLMSample.kt) | ailia LLM |
+| Audio LLM (ALM) | [Gemma 4 E2B / E4B + mmproj](app/src/main/java/jp/axinc/ailia_kotlin/AiliaMultimodalLLMSample.kt) | ailia LLM |
+| Tool Use | [Gemma 4 E2B / E4B + air conditioner tool](app/src/main/java/jp/axinc/ailia_kotlin/AiliaToolUseSample.kt) | ailia LLM |
+
+## Measuring LLM prefill throughput
+
+The LLM sample has a paste button (`2048`) next to Send. It pastes an ailia introduction text taken from
+[ailia.ai](https://ailia.ai/) ([ailia_intro.txt](app/src/main/res/raw/ailia_intro.txt)), trimmed with the model
+tokenizer to 2048 tokens and prefixed with a request to summarize it, and clears the chat history so the next Send
+measures the prefill of that text alone. After generation the status line reports the measured prefill throughput
+(PPS) and decode throughput, for example
+`Prefill 2067 tokens 38.57 tokens/s (53591 ms) / Decode 411 tokens 7.23 tokens/s`.
 
 ## Copying one sample into an application
 

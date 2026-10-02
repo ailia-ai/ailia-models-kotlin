@@ -8,11 +8,51 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Available LLM models (URLs follow ailia-models-flutter: /gemma/<fileName>).
+ *
+ * @property mmprojFileName CPU(GGUF)で画像/音声を入力するためのmmproj。対応しないモデルはnull。
  */
-enum class LLMModelType(val displayName: String, val fileName: String) {
-    GEMMA_4_E2B("Gemma 4 E2B", "gemma-4-E2B-it-Q4_K_M.gguf"),
-    GEMMA_4_E4B("Gemma 4 E4B", "gemma-4-E4B-it-Q4_K_M.gguf"),
+enum class LLMModelType(
+    val displayName: String,
+    val fileName: String,
+    val mmprojFileName: String? = null,
+) {
+    GEMMA_4_E2B("Gemma 4 E2B", "gemma-4-E2B-it-Q4_K_M.gguf", "gemma-4-E2B-it-mmproj-F16.gguf"),
+    GEMMA_4_E4B("Gemma 4 E4B", "gemma-4-E4B-it-Q4_K_M.gguf", "gemma-4-E4B-it-mmproj-F16.gguf"),
     GEMMA_2_2B("Gemma 2 2B", "gemma-2-2b-it-Q4_K_M.gguf"),
+    ;
+
+    companion object {
+        /** VLM / ALM / ToolUseで選べるモデル(画像・音声入力とツール呼び出しに対応するGemma 4)。 */
+        val GEMMA_4_MODELS = listOf(GEMMA_4_E2B, GEMMA_4_E4B)
+    }
+}
+
+/**
+ * 1回の生成で計測したPrefill / Decodeの性能。
+ *
+ * Prefillは最初のgenerate()呼び出しで実行されるため、PPS(prefill tokens/s)は
+ * 「プロンプトのトークン数 / 最初のgenerate()の時間」で求める。
+ */
+data class LLMPerformance(
+    val promptTokens: Int,
+    val prefillMs: Long,
+    val generatedTokens: Int,
+    val decodeMs: Long,
+) {
+    /** Prefillスループット (tokens/s)。 */
+    val prefillTokensPerSecond: Double =
+        if (prefillMs > 0) promptTokens * 1000.0 / prefillMs else 0.0
+
+    /** Decodeスループット (tokens/s)。最初のトークンはPrefillに含めるため除外する。 */
+    val decodeTokensPerSecond: Double =
+        if (decodeMs > 0) generatedTokens * 1000.0 / decodeMs else 0.0
+
+    /** UIに表示する1行のサマリ。 */
+    fun summary(): String = String.format(
+        java.util.Locale.ROOT,
+        "Prefill %d tokens %.2f tokens/s (%d ms) / Decode %d tokens %.2f tokens/s",
+        promptTokens, prefillTokensPerSecond, prefillMs, generatedTokens, decodeTokensPerSecond,
+    )
 }
 
 /**
@@ -23,6 +63,9 @@ class AiliaLLMSample {
     private var isInitialized = false
     private var lastResult: String = ""
     private var modelPath: String? = null
+    /** 直近の生成で計測したPrefill / Decodeの性能。 */
+    var lastPerformance: LLMPerformance? = null
+        private set
     private val conversationHistory = mutableListOf<AiliaLLMChatMessage>()
     private val cancelRequested = AtomicBoolean(false)
 
@@ -97,6 +140,21 @@ class AiliaLLMSample {
     }
 
     /**
+     * PPS計測用の評価テキストを作る。
+     * モデルが初期化済みならモデルのトークナイザで正確なトークン数に合わせる。
+     */
+    fun buildBenchmarkPrompt(
+        context: Context,
+        targetTokens: Int = BenchmarkPrompt.DEFAULT_TARGET_TOKENS,
+    ): BenchmarkPrompt.Result {
+        val model = llm.takeIf { isInitialized } ?: return BenchmarkPrompt.build(context, targetTokens)
+        return BenchmarkPrompt.build(context, targetTokens) { text -> model.getTokenCount(text) }
+    }
+
+    /** 現在のモデルでダウンロードするモデルファイル名。 */
+    fun modelFileName(): String = modelType.fileName
+
+    /**
      * Generates a response for the given user input.
      * This is a blocking operation that should be called on a background thread.
      *
@@ -114,6 +172,7 @@ class AiliaLLMSample {
         val historySizeBeforeRequest = conversationHistory.size
         return try {
             cancelRequested.set(false)
+            lastPerformance = null
             val startTime = System.nanoTime()
 
             // Add user message to conversation history
@@ -121,14 +180,23 @@ class AiliaLLMSample {
 
             // Set the prompt
             llm!!.setPrompt(conversationHistory.toTypedArray())
+            val promptTokens = llm!!.getPromptTokenCount()
 
             // Generate response token by token
             val responseBuilder = StringBuilder()
             var done = false
             var generationSteps = 0
+            // Prefillは最初のgenerate()で実行されるため、その時間を分けて計測する
+            var prefillNanos = 0L
+            var decodeStartNanos = 0L
 
             while (!done && !cancelRequested.get() && generationSteps < MAX_GENERATION_STEPS) {
+                val stepStart = System.nanoTime()
                 done = llm!!.generate()
+                if (generationSteps == 0) {
+                    prefillNanos = System.nanoTime() - stepStart
+                    decodeStartNanos = System.nanoTime()
+                }
                 generationSteps++
                 val token = llm!!.getDeltaText()
                 if (token.isNotEmpty()) {
@@ -136,6 +204,7 @@ class AiliaLLMSample {
                     listener?.onToken(token)
                 }
             }
+            val decodeNanos = if (decodeStartNanos > 0) System.nanoTime() - decodeStartNanos else 0L
 
             if (cancelRequested.get()) {
                 while (conversationHistory.size > historySizeBeforeRequest) conversationHistory.removeAt(conversationHistory.lastIndex)
@@ -157,8 +226,18 @@ class AiliaLLMSample {
             val endTime = System.nanoTime()
             val processingTime = (endTime - startTime) / 1000000
 
+            val performance = LLMPerformance(
+                promptTokens = promptTokens,
+                prefillMs = prefillNanos / 1000000,
+                // 最初のトークンはPrefillに含まれるため、Decodeのトークン数から除く
+                generatedTokens = (generationSteps - 1).coerceAtLeast(0),
+                decodeMs = decodeNanos / 1000000,
+            )
+            lastPerformance = performance
+
             listener?.onComplete(fullResponse)
-            Log.i(TAG, "Chat completed in ${processingTime}ms. Response: $fullResponse")
+            Log.i(TAG, "Chat completed in ${processingTime}ms. ${performance.summary()}")
+            Log.i(TAG, "Response: $fullResponse")
 
             processingTime
 
