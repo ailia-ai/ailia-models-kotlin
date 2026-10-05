@@ -36,8 +36,6 @@ object ModelDownloader {
     private const val PROGRESS_STEP_BYTES = 4L * 1024 * 1024
 
     const val GEMMA_2_MODEL_URL = "$BASE_URL/gemma/gemma-2-2b-it-Q4_K_M.gguf"
-    const val GEMMA_3_MODEL_URL = "$BASE_URL/gemma/gemma-3-4b-it-Q4_K_M.gguf"
-    const val GEMMA_3_MMPROJ_URL = "$BASE_URL/gemma/gemma-3-4b-it-GGUF_mmproj-model-f16.gguf"
     const val SAMPLE_IMAGE_URL = "$BASE_URL/misc/sample_image.jpg"
 
     interface DownloadListener {
@@ -202,20 +200,6 @@ object ModelDownloader {
     fun downloadGemma2Model(context: Context, listener: DownloadListener? = null): File? =
         downloadLLMModel(context, "gemma-2-2b-it-Q4_K_M.gguf", listener)
 
-    fun downloadGemma3Model(context: Context, listener: DownloadListener? = null): File? {
-        val directory = modelDirectory(context)
-        val fileName = "gemma-3-4b-it-Q4_K_M.gguf"
-        migrateLegacyCache(context, directory, fileName)
-        return downloadFile(directory, ModelFileSpec(GEMMA_3_MODEL_URL, fileName), listener)
-    }
-
-    fun downloadGemma3Projector(context: Context, listener: DownloadListener? = null): File? {
-        val directory = modelDirectory(context)
-        val fileName = "gemma-3-4b-it-GGUF_mmproj-model-f16.gguf"
-        migrateLegacyCache(context, directory, fileName)
-        return downloadFile(directory, ModelFileSpec(GEMMA_3_MMPROJ_URL, fileName), listener)
-    }
-
     fun downloadSampleImage(context: Context, listener: DownloadListener? = null): File? = downloadFile(
         modelDirectory(context),
         ModelFileSpec(SAMPLE_IMAGE_URL, "sample_image.jpg"),
@@ -225,25 +209,11 @@ object ModelDownloader {
     fun isGemma2ModelDownloaded(context: Context): Boolean =
         isLLMModelDownloaded(context, "gemma-2-2b-it-Q4_K_M.gguf")
 
-    fun isGemma3ModelDownloaded(context: Context): Boolean =
-        isDownloaded(modelDirectory(context), ModelFileSpec(GEMMA_3_MODEL_URL, "gemma-3-4b-it-Q4_K_M.gguf"))
-
-    fun isGemma3ProjectorDownloaded(context: Context): Boolean = isDownloaded(
-        modelDirectory(context),
-        ModelFileSpec(GEMMA_3_MMPROJ_URL, "gemma-3-4b-it-GGUF_mmproj-model-f16.gguf"),
-    )
-
     fun isSampleImageDownloaded(context: Context): Boolean =
         isDownloaded(modelDirectory(context), ModelFileSpec(SAMPLE_IMAGE_URL, "sample_image.jpg"))
 
     fun getGemma2ModelPath(context: Context): String =
         File(modelDirectory(context), "gemma-2-2b-it-Q4_K_M.gguf").absolutePath
-
-    fun getGemma3ModelPath(context: Context): String =
-        File(modelDirectory(context), "gemma-3-4b-it-Q4_K_M.gguf").absolutePath
-
-    fun getGemma3ProjectorPath(context: Context): String =
-        File(modelDirectory(context), "gemma-3-4b-it-GGUF_mmproj-model-f16.gguf").absolutePath
 
     fun getSampleImagePath(context: Context): String =
         File(modelDirectory(context), "sample_image.jpg").absolutePath
