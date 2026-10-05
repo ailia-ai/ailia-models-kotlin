@@ -1,5 +1,7 @@
 package jp.axinc.ailia_kotlin
 
+import ai.onnxruntime.OrtEnvironment
+import ai.onnxruntime.OrtSession
 import android.util.Log
 import axip.ailia.Ailia
 import axip.ailia.AiliaModel
@@ -37,6 +39,8 @@ class AiliaMiniLMv2Sample(private val modelDirectory: File) {
 
     private var tokenizer: AiliaTokenizer? = null
     private var model: AiliaModel? = null
+    private val ortEnvironment = OrtEnvironment.getEnvironment()
+    private var ortSession: OrtSession? = null
     private var isInitialized = false
     private var lastResult: String = ""
 
@@ -90,6 +94,30 @@ class AiliaMiniLMv2Sample(private val modelDirectory: File) {
         }
     }
 
+    fun initializeOnnxRuntime(): Boolean {
+        release()
+        return try {
+            tokenizer = AiliaTokenizer(AiliaTokenizer.AILIA_TOKENIZER_TYPE_XLM_ROBERTA)
+            tokenizer?.loadFiles(modelPath = File(modelDirectory, TOKENIZER_FILE).absolutePath)
+            val options = OrtSession.SessionOptions()
+            try {
+                ortSession = ortEnvironment.createSession(
+                    File(modelDirectory, MODEL_FILE).absolutePath,
+                    options,
+                )
+            } finally {
+                options.close()
+            }
+            isInitialized = true
+            Log.i(TAG, "MiniLMv2 initialized with ONNX Runtime CPU")
+            true
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to initialize MiniLMv2 with ONNX Runtime", e)
+            release()
+            false
+        }
+    }
+
     /**
      * Runs zero-shot classification on the given sentence with candidate labels.
      *
@@ -103,7 +131,7 @@ class AiliaMiniLMv2Sample(private val modelDirectory: File) {
         labels: List<String>,
         hypothesisTemplate: String = "This example is {}."
     ): Long {
-        if (!isInitialized || tokenizer == null || model == null) {
+        if (!isInitialized || tokenizer == null || (model == null && ortSession == null)) {
             Log.e(TAG, "MiniLMv2 not initialized")
             return -1
         }
@@ -121,7 +149,7 @@ class AiliaMiniLMv2Sample(private val modelDirectory: File) {
             val maxSeqLen = tokenizedPairs.maxOf { it.first.size }.coerceAtMost(MAX_LENGTH)
             Log.i(TAG, "MiniLMv2 predict: batchSize=$batchSize, maxSeqLen=$maxSeqLen")
 
-            // 2. Create padded batch arrays (as float for ailia SDK)
+            // 2. Create padded batch arrays. The ONNX graph uses int64 inputs.
             val inputIds = FloatArray(batchSize * maxSeqLen)
             val attentionMask = FloatArray(batchSize * maxSeqLen)
 
@@ -139,22 +167,45 @@ class AiliaMiniLMv2Sample(private val modelDirectory: File) {
                 }
             }
 
-            // 3. Set input shapes and data
-            val inputIdx0 = model!!.getBlobIndexByInputIndex(0)  // input_ids
-            val inputIdx1 = model!!.getBlobIndexByInputIndex(1)  // attention_mask
-
-            model!!.setInputBlobShapeND(intArrayOf(batchSize, maxSeqLen), inputIdx0)
-            model!!.setInputBlobShapeND(intArrayOf(batchSize, maxSeqLen), inputIdx1)
-            model!!.setInputBlobData(inputIds, inputIds.size * 4, inputIdx0)
-            model!!.setInputBlobData(attentionMask, attentionMask.size * 4, inputIdx1)
-
-            // 4. Run inference
-            model!!.update()
-
-            // 5. Get output logits (batchSize, 3)
-            val outputIdx = model!!.getBlobIndexByOutputIndex(0)
-            val output = FloatArray(batchSize * 3)
-            model!!.getBlobData(output, output.size * 4, outputIdx)
+            // 3. Run inference and get output logits (batchSize, 3).
+            val output = ortSession?.let { session ->
+                val shape = longArrayOf(batchSize.toLong(), maxSeqLen.toLong())
+                val idsTensor = createLongTensor(
+                    ortEnvironment,
+                    LongArray(inputIds.size) { inputIds[it].toLong() },
+                    shape,
+                )
+                val maskTensor = createLongTensor(
+                    ortEnvironment,
+                    LongArray(attentionMask.size) { attentionMask[it].toLong() },
+                    shape,
+                )
+                try {
+                    runFloatTensor(
+                        session,
+                        mapOf("input_ids" to idsTensor, "attention_mask" to maskTensor),
+                        "logits",
+                    )
+                } finally {
+                    closeTensors(idsTensor, maskTensor)
+                }
+            } ?: run {
+                val ailiaModel = checkNotNull(model)
+                val inputIdx0 = ailiaModel.getBlobIndexByInputIndex(0)
+                val inputIdx1 = ailiaModel.getBlobIndexByInputIndex(1)
+                ailiaModel.setInputBlobShapeND(intArrayOf(batchSize, maxSeqLen), inputIdx0)
+                ailiaModel.setInputBlobShapeND(intArrayOf(batchSize, maxSeqLen), inputIdx1)
+                ailiaModel.setInputBlobData(inputIds, inputIds.size * 4, inputIdx0)
+                ailiaModel.setInputBlobData(attentionMask, attentionMask.size * 4, inputIdx1)
+                ailiaModel.update()
+                FloatArray(batchSize * 3).also {
+                    ailiaModel.getBlobData(
+                        it,
+                        it.size * 4,
+                        ailiaModel.getBlobIndexByOutputIndex(0),
+                    )
+                }
+            }
 
             // 6. Extract entailment logits and apply softmax
             val entailmentLogits = FloatArray(batchSize)
@@ -229,8 +280,14 @@ class AiliaMiniLMv2Sample(private val modelDirectory: File) {
         } catch (e: Exception) {
             Log.e(TAG, "Error releasing model: ${e.message}")
         }
+        try {
+            ortSession?.close()
+        } catch (e: Exception) {
+            Log.e(TAG, "Error releasing ONNX Runtime MiniLMv2: ${e.message}")
+        }
         tokenizer = null
         model = null
+        ortSession = null
         isInitialized = false
         Log.i(TAG, "MiniLMv2 released")
     }

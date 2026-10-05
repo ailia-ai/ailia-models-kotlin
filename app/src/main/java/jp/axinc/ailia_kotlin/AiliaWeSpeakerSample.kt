@@ -1,5 +1,7 @@
 package jp.axinc.ailia_kotlin
 
+import ai.onnxruntime.OrtEnvironment
+import ai.onnxruntime.OrtSession
 import android.annotation.SuppressLint
 import android.media.AudioAttributes
 import android.media.AudioFormat
@@ -70,6 +72,9 @@ class AiliaWeSpeakerSample(private val modelDirectory: File) {
 
     private var speakerModel: AiliaModel? = null
     private var vadModel: AiliaModel? = null
+    private val ortEnvironment = OrtEnvironment.getEnvironment()
+    private var ortSpeakerSession: OrtSession? = null
+    private var ortVadSession: OrtSession? = null
     @Volatile private var initialized = false
 
     private val recording = AtomicBoolean(false)
@@ -125,6 +130,32 @@ class AiliaWeSpeakerSample(private val modelDirectory: File) {
         }
     }
 
+    fun initializeOnnxRuntime(): Boolean {
+        releaseModels()
+        return try {
+            val options = OrtSession.SessionOptions()
+            try {
+                ortSpeakerSession = ortEnvironment.createSession(
+                    File(modelDirectory, WESPEAKER_MODEL_FILE).absolutePath,
+                    options,
+                )
+                ortVadSession = ortEnvironment.createSession(
+                    File(modelDirectory, VAD_MODEL_FILE).absolutePath,
+                    options,
+                )
+            } finally {
+                options.close()
+            }
+            initialized = true
+            Log.i(TAG, "WeSpeaker and Silero VAD initialized with ONNX Runtime CPU")
+            true
+        } catch (e: Exception) {
+            Log.e(TAG, "ONNX Runtime initialization failed", e)
+            releaseModels()
+            false
+        }
+    }
+
     fun extractEmbedding(
         interleavedAudio: FloatArray,
         channels: Int,
@@ -143,17 +174,31 @@ class AiliaWeSpeakerSample(private val modelDirectory: File) {
 
         val features = SpeakerVerificationAudio.computeFbank(speech)
         val frameCount = features.size / 80
-        val model = checkNotNull(speakerModel)
-        val inputIndex = Ailia.FindBlobIndexByName(model.handle, "feats")
-        model.setInputBlobShapeND(intArrayOf(1, frameCount, 80), inputIndex)
-        model.setInputBlobData(features, features.size * Float.SIZE_BYTES, inputIndex)
-        model.update()
-        val embedding = FloatArray(EMBEDDING_SIZE)
-        model.getBlobData(
-            embedding,
-            embedding.size * Float.SIZE_BYTES,
-            Ailia.FindBlobIndexByName(model.handle, "embs"),
-        )
+        val embedding = ortSpeakerSession?.let { session ->
+            val tensor = createFloatTensor(
+                ortEnvironment,
+                features,
+                longArrayOf(1, frameCount.toLong(), 80),
+            )
+            try {
+                runFloatTensor(session, mapOf("feats" to tensor), "embs")
+            } finally {
+                tensor.close()
+            }
+        } ?: run {
+            val model = checkNotNull(speakerModel)
+            val inputIndex = Ailia.FindBlobIndexByName(model.handle, "feats")
+            model.setInputBlobShapeND(intArrayOf(1, frameCount, 80), inputIndex)
+            model.setInputBlobData(features, features.size * Float.SIZE_BYTES, inputIndex)
+            model.update()
+            FloatArray(EMBEDDING_SIZE).also {
+                model.getBlobData(
+                    it,
+                    it.size * Float.SIZE_BYTES,
+                    Ailia.FindBlobIndexByName(model.handle, "embs"),
+                )
+            }
+        }
         return SpeakerEmbeddingResult(
             embedding = embedding,
             speechDurationMs = speech.size * 1000L / SpeakerVerificationAudio.SAMPLE_RATE,
@@ -176,6 +221,17 @@ class AiliaWeSpeakerSample(private val modelDirectory: File) {
     }
 
     private fun detectSpeech(audio: FloatArray): List<VadSegment> {
+        ortVadSession?.let { session ->
+            val probabilities = runOrtSileroVad(
+                ortEnvironment,
+                session,
+                audio,
+                VAD_WINDOW_SIZE,
+                VAD_CONTEXT_SIZE,
+                VAD_STATE_SIZE,
+            )
+            return SpeakerVerificationAudio.speechSegments(probabilities, audio.size)
+        }
         val model = checkNotNull(vadModel)
         val inputIndex = Ailia.FindBlobIndexByName(model.handle, "input")
         val stateIndex = Ailia.FindBlobIndexByName(model.handle, "state")
@@ -420,8 +476,16 @@ class AiliaWeSpeakerSample(private val modelDirectory: File) {
         } catch (e: Exception) {
             Log.e(TAG, "Failed to release Silero VAD", e)
         }
+        try {
+            ortSpeakerSession?.close()
+            ortVadSession?.close()
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to release ONNX Runtime audio sessions", e)
+        }
         speakerModel = null
         vadModel = null
+        ortSpeakerSession = null
+        ortVadSession = null
         initialized = false
     }
 

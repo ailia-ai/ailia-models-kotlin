@@ -1,5 +1,7 @@
 package jp.axinc.ailia_kotlin
 
+import ai.onnxruntime.OrtEnvironment
+import ai.onnxruntime.OrtSession
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
@@ -30,6 +32,10 @@ class AiliaU2NetSample(private val modelDirectory: File) {
     }
 
     private var ailia: AiliaModel? = null
+    private val ortEnvironment = OrtEnvironment.getEnvironment()
+    private var ortSession: OrtSession? = null
+    private var ortInputName: String? = null
+    private var ortOutputName: String? = null
     private var isInitialized = false
 
     fun downloadModel(listener: ModelDownloadListener? = null): Boolean {
@@ -67,6 +73,31 @@ class AiliaU2NetSample(private val modelDirectory: File) {
         }
     }
 
+    fun initializeOnnxRuntime(): Boolean {
+        release()
+        return try {
+            val options = OrtSession.SessionOptions()
+            try {
+                val session = ortEnvironment.createSession(
+                    File(modelDirectory, MODEL_FILE).absolutePath,
+                    options,
+                )
+                ortSession = session
+                ortInputName = session.inputNames.first()
+                ortOutputName = session.outputNames.first()
+            } finally {
+                options.close()
+            }
+            isInitialized = true
+            Log.i(TAG, "U2Net initialized with ONNX Runtime CPU")
+            true
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to initialize U2Net with ONNX Runtime", e)
+            release()
+            false
+        }
+    }
+
     /**
      * 背景除去を実行し、背景部分を黒の半透明オーバーレイとしてcanvasに描画する。
      * canvasには元画像が描画済みであること。
@@ -80,7 +111,8 @@ class AiliaU2NetSample(private val modelDirectory: File) {
     /** Returns the foreground mask without rendering it into an Android Canvas. */
     fun predictMask(bitmap: Bitmap): ModelInferenceResult<SegmentationMask>? {
         val model = ailia
-        if (!isInitialized || model == null) {
+        val session = ortSession
+        if (!isInitialized || (model == null && session == null)) {
             Log.e(TAG, "U2Net not initialized")
             return null
         }
@@ -104,13 +136,30 @@ class AiliaU2NetSample(private val modelDirectory: File) {
             }
 
             val startTime = System.nanoTime()
-            model.setInputBlobData(input, input.size * 4, model.getBlobIndexByInputIndex(0))
-            model.update()
-
-            // 出力d0(マスク, 1x1x320x320)を取得
-            val outIdx = model.getBlobIndexByOutputIndex(0)
-            val mask = FloatArray(plane)
-            model.getBlobData(mask, mask.size * 4, outIdx)
+            val mask = if (session != null) {
+                val tensor = createFloatTensor(
+                    ortEnvironment,
+                    input,
+                    longArrayOf(1, 3, IMAGE_SIZE.toLong(), IMAGE_SIZE.toLong()),
+                )
+                try {
+                    runFloatTensor(
+                        session,
+                        mapOf(checkNotNull(ortInputName) to tensor),
+                        checkNotNull(ortOutputName),
+                    ).copyOf(plane)
+                } finally {
+                    tensor.close()
+                }
+            } else {
+                checkNotNull(model)
+                model.setInputBlobData(input, input.size * 4, model.getBlobIndexByInputIndex(0))
+                model.update()
+                val outIdx = model.getBlobIndexByOutputIndex(0)
+                FloatArray(plane).also {
+                    model.getBlobData(it, it.size * 4, outIdx)
+                }
+            }
             val endTime = System.nanoTime()
 
             for (i in mask.indices) mask[i] = mask[i].coerceIn(0f, 1f)
@@ -135,8 +184,16 @@ class AiliaU2NetSample(private val modelDirectory: File) {
             ailia?.close()
         } catch (e: Exception) {
             Log.e(TAG, "Error releasing U2Net: ${e.message}")
+        }
+        try {
+            ortSession?.close()
+        } catch (e: Exception) {
+            Log.e(TAG, "Error releasing ONNX Runtime U2Net: ${e.message}")
         } finally {
             ailia = null
+            ortSession = null
+            ortInputName = null
+            ortOutputName = null
             isInitialized = false
             Log.i(TAG, "U2Net released")
         }

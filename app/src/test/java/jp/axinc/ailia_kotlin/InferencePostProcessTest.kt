@@ -117,6 +117,76 @@ class InferencePostProcessTest {
     }
 
     @Test
+    fun onnxRuntimeResnetPreprocessingUsesSignedRgbRange() {
+        val input = preprocessOrtClassificationRgba(
+            img = byteArrayOf(0, 128.toByte(), 0xFF.toByte(), 0xFF.toByte()),
+            width = 1,
+            height = 1,
+            modelType = OnnxClassificationModelType.RESNET50,
+        )
+        val plane = 224 * 224
+
+        assertEquals(-128f, input[0], 0.0001f)
+        assertEquals(0f, input[plane], 0.0001f)
+        assertEquals(127f, input[2 * plane], 0.0001f)
+    }
+
+    @Test
+    fun onnxRuntimeYoloxDecodesFloatOutput() {
+        val classCount = 2
+        val cells = 4 * 4 + 2 * 2 + 1
+        val output = FloatArray(cells * (5 + classCount))
+        output[0] = 0.5f
+        output[1] = 0.5f
+        output[2] = 0f
+        output[3] = 0f
+        output[4] = 0.9f
+        output[5] = 0.8f
+        output[6] = 0.1f
+
+        val detection = decodeOrtYoloxOutput(
+            output = output,
+            inputWidth = 32,
+            inputHeight = 32,
+            classCount = classCount,
+            scoreThreshold = 0.25f,
+            iouThreshold = 0.45f,
+        ).single()
+
+        assertEquals(0, detection.category)
+        assertEquals(0.72f, detection.confidence, 0.0001f)
+        assertEquals(9f / 32f, detection.width, 0.0001f)
+        assertEquals(9f / 32f, detection.height, 0.0001f)
+    }
+
+    @Test
+    fun onnxRuntimePoseConnectsHeatmapPeaksWithPafs() {
+        val width = 5
+        val height = 5
+        val plane = width * height
+        val heatmaps = FloatArray(19 * plane)
+        fun setPeak(type: Int, x: Int, y: Int) {
+            heatmaps[type * plane + y * width + x] = 0.9f
+        }
+        setPeak(type = 1, x = 1, y = 2) // neck
+        setPeak(type = 2, x = 2, y = 2) // right shoulder
+        setPeak(type = 3, x = 3, y = 2) // right elbow
+
+        val pafs = FloatArray(38 * plane)
+        for (offset in 0 until plane) {
+            pafs[12 * plane + offset] = 1f // neck -> right shoulder
+            pafs[14 * plane + offset] = 1f // right shoulder -> right elbow
+        }
+
+        val pose = decodeOrtLightweightPose(heatmaps, pafs, width, height).single()
+
+        assertEquals(3, pose.points.count { it != null })
+        assertEquals(0.25f, pose.points[1]!!.x, 0.0001f)
+        assertEquals(0.50f, pose.points[1]!!.y, 0.0001f)
+        assertEquals(0.75f, pose.points[3]!!.x, 0.0001f)
+    }
+
+    @Test
     fun downloadProgressDisplaysMegabytes() {
         assertEquals(
             "Downloading model.onnx 1.0 / 2.0 MB",
