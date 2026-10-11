@@ -27,6 +27,29 @@ enum class MultimodalMediaType(val mediaType: String, val systemPrompt: String) 
 }
 
 /**
+ * VLM / ALMの1回の生成で計測した性能。
+ *
+ * 画像・音声のエンコードはsetPrompt()、Prefillは最初のgenerate()で実行されるため、
+ * TTFTはsetPrompt()の開始から最初のgenerate()が返るまでの時間で求める。
+ */
+data class MultimodalLLMPerformance(
+    val ttftMs: Long,
+    val generatedTokens: Int,
+    val decodeMs: Long,
+) {
+    /** Decodeスループット (tokens/s)。最初のトークンはTTFTに含めるため除外する。 */
+    val decodeTokensPerSecond: Double =
+        if (decodeMs > 0) generatedTokens * 1000.0 / decodeMs else 0.0
+
+    /** UIに表示する1行のサマリ。 */
+    fun summary(): String = String.format(
+        java.util.Locale.ROOT,
+        "TTFT %d ms / Decode %d tokens %.2f tokens/s",
+        ttftMs, generatedTokens, decodeTokensPerSecond,
+    )
+}
+
+/**
  * Sample class demonstrating ailia Multimodal LLM inference (VLM / ALM).
  *
  * Gemma 4 (E2B / E4B)をテキストモデルとして使い、mmprojで画像または音声を入力する。
@@ -55,6 +78,10 @@ class AiliaMultimodalLLMSample(
 
     /** 初期化時にMTPを有効にできたか。 */
     var isMtpActive: Boolean = false
+        private set
+
+    /** 直近の生成で計測したTTFT / Decodeの性能。 */
+    var lastPerformance: MultimodalLLMPerformance? = null
         private set
 
     companion object {
@@ -268,6 +295,7 @@ class AiliaMultimodalLLMSample(
         val historySizeBeforeRequest = conversationHistory.size
         return try {
             cancelRequested.set(false)
+            lastPerformance = null
             val startTime = System.nanoTime()
 
             // Create media data for the image or audio
@@ -294,10 +322,17 @@ class AiliaMultimodalLLMSample(
             var done = false
             var tokenCount = 0
             var generationSteps = 0
+            var ttftNanos = 0L
+            var decodeStartNanos = 0L
 
             Log.i(TAG, "chatWithMedia: starting generate loop...")
             while (!done && !cancelRequested.get() && generationSteps < MAX_GENERATION_STEPS) {
                 done = llm!!.generate()
+                if (generationSteps == 0) {
+                    // Prefillは最初のgenerate()で実行されるため、ここまでをTTFTとする
+                    decodeStartNanos = System.nanoTime()
+                    ttftNanos = decodeStartNanos - promptStart
+                }
                 generationSteps++
                 val token = llm!!.getDeltaText()
                 if (token.isNotEmpty()) {
@@ -319,6 +354,7 @@ class AiliaMultimodalLLMSample(
                 listener?.onError("Generation stopped after $MAX_GENERATION_STEPS steps")
                 return -1
             }
+            val decodeNanos = if (decodeStartNanos > 0) System.nanoTime() - decodeStartNanos else 0L
             Log.i(TAG, "chatWithMedia: generate loop done, total tokens=$tokenCount")
 
             val fullResponse = responseBuilder.toString()
@@ -330,8 +366,17 @@ class AiliaMultimodalLLMSample(
             val endTime = System.nanoTime()
             val processingTime = (endTime - startTime) / 1000000
 
+            val performance = MultimodalLLMPerformance(
+                ttftMs = ttftNanos / 1000000,
+                // 最初のトークンはTTFTに含まれるため、Decodeのトークン数から除く
+                generatedTokens = (generationSteps - 1).coerceAtLeast(0),
+                decodeMs = decodeNanos / 1000000,
+            )
+            lastPerformance = performance
+
             listener?.onComplete(fullResponse)
-            Log.i(TAG, "Multimodal chat completed in ${processingTime}ms. Response: $fullResponse")
+            Log.i(TAG, "Multimodal chat completed in ${processingTime}ms. ${performance.summary()}")
+            Log.i(TAG, "Response: $fullResponse")
 
             processingTime
         } catch (e: Exception) {

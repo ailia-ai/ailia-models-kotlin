@@ -1953,6 +1953,13 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    /** VLM / ALMの完了時のステータス。MTPの有無とTTFT / TPSを表示する。 */
+    private fun multimodalCompleteStatus(sample: AiliaMultimodalLLMSample): String {
+        val mtp = if (sample.isMtpActive) " (MTP)" else ""
+        val performance = sample.lastPerformance ?: return "Status: Complete$mtp"
+        return "Status: Complete$mtp - ${performance.summary()}"
+    }
+
     /** Stopで止めた場合はエラーではなく停止として表示する。 */
     private fun llmErrorStatus(error: String): String =
         if (llmStopRequested) "Status: Stopped" else "Status: Error - $error"
@@ -2474,7 +2481,7 @@ class MainActivity : AppCompatActivity() {
                         setLLMControlsEnabled(true)
                         hideModelDownloadProgress()
                         if (processingTime >= 0) {
-                            llmStatusTextView.text = "Status: Complete"
+                            llmStatusTextView.text = multimodalCompleteStatus(multimodalLLMSample)
                             processingTimeTextView.text = "Processing Time: ${processingTime}ms"
                         }
                         if (needsInitialization) loadSampleImageForMultimodal()
@@ -2707,7 +2714,7 @@ class MainActivity : AppCompatActivity() {
                     setLLMControlsEnabled(true)
                     hideModelDownloadProgress()
                     if (processingTime >= 0) {
-                        llmStatusTextView.text = "Status: Complete"
+                        llmStatusTextView.text = multimodalCompleteStatus(almSample)
                         processingTimeTextView.text = "Processing Time: ${processingTime}ms"
                     }
                     finishModelOperation(operationId)
