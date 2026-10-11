@@ -27,8 +27,23 @@ class AiliaToolUseSample {
     private var conversationHistory = JSONArray()
     private val cancelRequested = AtomicBoolean(false)
 
+    /** 実行バックエンド。QNNは対応SoCの場合のみ選択できる。 */
+    var backend: LLMBackend = LLMBackend.CPU
+
     /** 使用するモデル。ツール呼び出しに対応するGemma 4のみ。 */
     var modelType: LLMModelType = LLMModelType.GEMMA_4_E2B
+
+    /** MTPを使うか。 */
+    var mtpEnabled: Boolean = true
+
+    /** 初期化時にMTPを有効にできたか。 */
+    var isMtpActive: Boolean = false
+        private set
+
+    /** ダウンロード中のファイル名。進捗表示に使う。 */
+    @Volatile
+    var downloadingFileName: String? = null
+        private set
 
     /** ツールで設定したエアコンの温度(摂氏)。未設定ならnull。 */
     var airConditionerTemperature: Double? = null
@@ -37,6 +52,8 @@ class AiliaToolUseSample {
     companion object {
         private const val TAG = "AiliaToolUseSample"
         private const val N_CTX = 8192 // Context window size
+        // QNNモデルはコンテキスト長が変換時に固定されるため、0を指定してモデル内の値を使う
+        private const val N_CTX_QNN = 0
         private const val MAX_GENERATION_STEPS = 4096
 
         /** ツール呼び出しと結果返却の往復回数の上限。 */
@@ -99,19 +116,44 @@ class AiliaToolUseSample {
                 release()
             }
 
-            Log.i(TAG, "Downloading ${modelType.displayName} model (${modelType.fileName})...")
-            val modelFile = ModelDownloader.downloadLLMModel(context, modelType.fileName, progressListener)
+            val qnnFileName = qnnFileNameOrNull()
+            if (backend == LLMBackend.QNN && qnnFileName == null) {
+                Log.e(TAG, "QNN model is not available for ${modelType.displayName} on ${QnnSupport.socName}")
+                return false
+            }
+
+            val fileName = qnnFileName ?: modelType.fileName
+            Log.i(TAG, "Downloading ${modelType.displayName} model ($fileName) for ${backend.displayName}...")
+            downloadingFileName = fileName
+            val modelFile = if (qnnFileName != null) {
+                ModelDownloader.downloadQnnLLMModel(context, qnnFileName, progressListener)
+            } else {
+                ModelDownloader.downloadLLMModel(context, modelType.fileName, progressListener)
+            }
             if (modelFile == null) {
                 Log.e(TAG, "Failed to download model")
                 return false
             }
             modelPath = modelFile.absolutePath
 
+            val mtpFileName = mtpFileNameOrNull()
+            val mtpFile = mtpFileName?.let {
+                Log.i(TAG, "Downloading MTP assistant ($it) for ${backend.displayName}...")
+                downloadingFileName = it
+                LLMMtp.download(context, it, backend, progressListener)
+            }
+            if (mtpFileName != null && mtpFile == null) {
+                Log.e(TAG, "Failed to download MTP assistant")
+                return false
+            }
+
             Log.i(TAG, "Creating AiliaLLM instance...")
             llm = AiliaLLM()
 
             Log.i(TAG, "Opening model file: $modelPath")
-            llm!!.openModelFile(modelPath!!, N_CTX)
+            llm!!.openModelFile(modelPath!!, if (qnnFileName != null) N_CTX_QNN else N_CTX)
+            // Assistantは本体を開いた後、最初のプロンプト設定より前に開く
+            isMtpActive = mtpFile != null && LLMMtp.open(llm!!, mtpFile.absolutePath)
             // ツール呼び出しの引数がぶれないよう、Tool Useではtemperatureを0にする
             llm!!.setSamplingParams(40, 0.9f, TEMPERATURE, 1234)
 
@@ -131,11 +173,26 @@ class AiliaToolUseSample {
     }
 
     /** Checks if the model is already downloaded. */
-    fun isModelDownloaded(context: Context): Boolean =
-        ModelDownloader.isLLMModelDownloaded(context, modelType.fileName)
+    fun isModelDownloaded(context: Context): Boolean {
+        val qnnFileName = qnnFileNameOrNull()
+        val modelDownloaded = if (qnnFileName != null) {
+            ModelDownloader.isQnnLLMModelDownloaded(context, qnnFileName)
+        } else {
+            ModelDownloader.isLLMModelDownloaded(context, modelType.fileName)
+        }
+        val mtpDownloaded = mtpFileNameOrNull()?.let { LLMMtp.isDownloaded(context, it, backend) } ?: true
+        return modelDownloaded && mtpDownloaded
+    }
 
-    /** ダウンロードするモデルファイル名。 */
-    fun modelFileName(): String = modelType.fileName
+    /** 現在のバックエンドでダウンロードするモデルファイル名。 */
+    fun modelFileName(): String = qnnFileNameOrNull() ?: modelType.fileName
+
+    private fun qnnFileNameOrNull(): String? =
+        if (backend == LLMBackend.QNN) QnnSupport.llmQnnFileName(modelType) else null
+
+    /** MTPを使う場合のAssistantのファイル名。MTP無効時や対応しないモデルではnull。 */
+    private fun mtpFileNameOrNull(): String? =
+        if (mtpEnabled) LLMMtp.assistantFileName(modelType, backend) else null
 
     /**
      * Runs one user request, executing tool calls until the model answers.
@@ -307,6 +364,7 @@ class AiliaToolUseSample {
         } finally {
             llm = null
             isInitialized = false
+            isMtpActive = false
             modelPath = null
             conversationHistory = JSONArray()
             Log.i(TAG, "Tool Use released")
