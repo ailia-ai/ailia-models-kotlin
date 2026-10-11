@@ -39,24 +39,36 @@ class QnnSupportTest {
     @Test
     fun `converted models are named after the SoC`() {
         assertEquals(
-            "gemma4-e2b-sm8475.qnn",
+            "gemma4-e2b-sm8475-fp16-mtp.qnn",
             QnnSupport.llmQnnFileName("sm8475", LLMModelType.GEMMA_4_E2B),
         )
         assertEquals(
             "gemma4-e2b-sm7635-mmproj.qnn",
-            QnnSupport.llmQnnFileName("sm7635", LLMModelType.GEMMA_4_E2B, mmproj = true),
+            QnnSupport.llmQnnFileName("sm7635", LLMModelType.GEMMA_4_E2B, QnnSupport.QnnLlmFile.MMPROJ),
+        )
+    }
+
+    @Test
+    fun `MTP assistants match the SoC and precision of the target model`() {
+        assertEquals(
+            "gemma4-e2b-sm8475-fp16-mtp-assistant.qnn",
+            QnnSupport.llmQnnFileName("sm8475", LLMModelType.GEMMA_4_E2B, QnnSupport.QnnLlmFile.MTP_ASSISTANT),
+        )
+        assertEquals(
+            "gemma4-e4b-sm7635-int16-mtp-assistant.qnn",
+            QnnSupport.llmQnnFileName("sm7635", LLMModelType.GEMMA_4_E4B, QnnSupport.QnnLlmFile.MTP_ASSISTANT),
         )
     }
 
     @Test
     fun `Gemma 4 E4B runs on QNN only on sm7635`() {
         assertEquals(
-            "gemma4-e4b-sm7635.qnn",
+            "gemma4-e4b-sm7635-int16-mtp.qnn",
             QnnSupport.llmQnnFileName("sm7635", LLMModelType.GEMMA_4_E4B),
         )
         assertEquals(
             "gemma4-e4b-sm7635-mmproj.qnn",
-            QnnSupport.llmQnnFileName("sm7635", LLMModelType.GEMMA_4_E4B, mmproj = true),
+            QnnSupport.llmQnnFileName("sm7635", LLMModelType.GEMMA_4_E4B, QnnSupport.QnnLlmFile.MMPROJ),
         )
         // Hexagon v69はContext Binaryの2GB制約のためE4BをQNNで使わない
         assertNull(QnnSupport.llmQnnFileName("sm8475", LLMModelType.GEMMA_4_E4B))

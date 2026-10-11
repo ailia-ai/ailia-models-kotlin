@@ -50,6 +50,13 @@ class AiliaMultimodalLLMSample(
     /** 使用するモデル。mmprojを持つGemma 4のみ。 */
     var modelType: LLMModelType = LLMModelType.GEMMA_4_E2B
 
+    /** MTPを使うか。 */
+    var mtpEnabled: Boolean = true
+
+    /** 初期化時にMTPを有効にできたか。 */
+    var isMtpActive: Boolean = false
+        private set
+
     companion object {
         private const val TAG = "AiliaMultimodalLLM"
         private const val N_CTX = 8192 // Context window size
@@ -112,6 +119,17 @@ class AiliaMultimodalLLMSample(
             }
             projectorPath = projectorFile.absolutePath
 
+            // Download MTP assistant file
+            val mtpFileName = mtpFileName()
+            val mtpFile = mtpFileName?.let {
+                Log.i(TAG, "Downloading $it for ${backend.displayName}...")
+                downloadModelFile(context, it, useQnn, listener)
+            }
+            if (mtpFileName != null && mtpFile == null) {
+                listener?.onError("Failed to download MTP assistant")
+                return false
+            }
+
             // Use the built-in sample media (R.raw.person / R.raw.demo) instead of downloading
             Log.i(TAG, "Preparing sample media from resources...")
             val sampleMediaFile = prepareSampleMediaFromResources(context)
@@ -129,6 +147,9 @@ class AiliaMultimodalLLMSample(
             // Open model file
             Log.i(TAG, "Opening model file: $modelPath")
             llm!!.openModelFile(modelPath!!, if (useQnn) N_CTX_QNN else N_CTX)
+
+            // MTP assistant must be opened before the multimodal projector and the first prompt
+            isMtpActive = mtpFile != null && LLMMtp.open(llm!!, mtpFile.absolutePath)
 
             // Open multimodal projector
             Log.i(TAG, "Opening multimodal projector: $projectorPath")
@@ -177,6 +198,9 @@ class AiliaMultimodalLLMSample(
         LLMBackend.QNN -> QnnSupport.llmQnnMmprojFileName(modelType)
     }
 
+    /** MTPを使う場合のAssistantのファイル名。MTP無効時や対応しない組み合わせではnull。 */
+    fun mtpFileName(): String? = if (mtpEnabled) LLMMtp.assistantFileName(modelType, backend) else null
+
     private fun downloadModelFile(
         context: Context,
         fileName: String,
@@ -209,12 +233,8 @@ class AiliaMultimodalLLMSample(
     fun areFilesDownloaded(context: Context): Boolean {
         val modelFileName = modelFileName() ?: return false
         val projectorFileName = projectorFileName() ?: return false
-        return if (backend == LLMBackend.QNN) {
-            ModelDownloader.isQnnLLMModelDownloaded(context, modelFileName) &&
-                ModelDownloader.isQnnLLMModelDownloaded(context, projectorFileName)
-        } else {
-            ModelDownloader.isLLMModelDownloaded(context, modelFileName) &&
-                ModelDownloader.isLLMModelDownloaded(context, projectorFileName)
+        return listOfNotNull(modelFileName, projectorFileName, mtpFileName()).all {
+            LLMMtp.isDownloaded(context, it, backend)
         }
     }
 
@@ -369,6 +389,7 @@ class AiliaMultimodalLLMSample(
         } finally {
             llm = null
             isInitialized = false
+            isMtpActive = false
             modelPath = null
             projectorPath = null
             sampleMediaPath = null

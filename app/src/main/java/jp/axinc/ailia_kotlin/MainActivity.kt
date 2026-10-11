@@ -68,6 +68,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var llmBenchmarkButton: Button
     private lateinit var llmInputBar: LinearLayout
     private lateinit var toolUseThinkingSwitch: SwitchCompat
+    private lateinit var llmMtpSwitch: SwitchCompat
     private lateinit var almInputModeRadioGroup: RadioGroup
     private lateinit var almWavRadioButton: RadioButton
     private lateinit var almMicRadioButton: RadioButton
@@ -355,6 +356,8 @@ class MainActivity : AppCompatActivity() {
         llmBenchmarkButton = findViewById(R.id.llmBenchmarkButton)
         llmInputBar = findViewById(R.id.llmInputBar)
         toolUseThinkingSwitch = findViewById(R.id.toolUseThinkingSwitch)
+        llmMtpSwitch = findViewById(R.id.llmMtpSwitch)
+        llmMtpSwitch.setOnCheckedChangeListener { _, _ -> releaseLLMSamples() }
         almInputModeRadioGroup = findViewById(R.id.almInputModeRadioGroup)
         almWavRadioButton = findViewById(R.id.almWavRadioButton)
         almMicRadioButton = findViewById(R.id.almMicRadioButton)
@@ -874,18 +877,26 @@ class MainActivity : AppCompatActivity() {
                     selectedLLMBackend = newBackend
                     preferredLLMBackend = newBackend
                     // バックエンド切り替え時は解放のみ(ダウンロードはSend押下時)
-                    llmSample.release()
-                    multimodalLLMSample.release()
-                    almSample.release()
-                    toolUseSample.release()
-                    isInitialized = false
-                    llmChatContainer.removeAllViews()
-                    setLLMControlsEnabled(true)
-                    llmStatusTextView.text = "Status: Press Send to run"
+                    releaseLLMSamples()
                 }
             }
             override fun onNothingSelected(parent: AdapterView<*>?) {}
         }
+    }
+
+    /**
+     * LLM系のモデルを解放する。バックエンドやMTPの切り替え時に呼び出す。
+     * MTPのAssistantはインスタンスを作り直さないと外せないため、次のSend押下時に初期化し直す。
+     */
+    private fun releaseLLMSamples() {
+        llmSample.release()
+        multimodalLLMSample.release()
+        almSample.release()
+        toolUseSample.release()
+        isInitialized = false
+        llmChatContainer.removeAllViews()
+        setLLMControlsEnabled(true)
+        llmStatusTextView.text = "Status: Press Send to run"
     }
 
     /** モデル選択スピナーの選択変更を各アルゴリズムに反映する */
@@ -1185,6 +1196,7 @@ class MainActivity : AppCompatActivity() {
         llmChatContainer,
         llmStatusTextView,
         llmEnvSpinner,
+        llmMtpSwitch,
         toolUseThinkingSwitch,
         llmBenchmarkButton,
         almInputModeRadioGroup,
@@ -1279,6 +1291,7 @@ class MainActivity : AppCompatActivity() {
             llmChatContainer,
             llmStatusTextView,
             llmEnvSpinner,
+            llmMtpSwitch,
         )
 
         // PPS計測用の貼り付けボタンはテキストのLLM画面だけに表示する
@@ -1949,6 +1962,7 @@ class MainActivity : AppCompatActivity() {
         setLLMControlsEnabled(enabled && !almRecorder.isRecording)
         // 生成中にバックエンドや入力ソースを変えるとモデルを解放してしまうため止める
         llmEnvSpinner.isEnabled = enabled
+        llmMtpSwitch.isEnabled = enabled
         toolUseThinkingSwitch.isEnabled = enabled
         almRecordButton.isEnabled = enabled
         almInputModeRadioGroup.isEnabled = enabled
@@ -2059,12 +2073,7 @@ class MainActivity : AppCompatActivity() {
         val needsInitialization = !isInitialized
         val modelType = selectedLLMModelType
         val backend = selectedLLMBackend
-        // QNN選択時はSoC固有の.qnnファイルをダウンロードするため、進捗表示のファイル名も切り替える
-        val modelFileName = if (backend == LLMBackend.QNN) {
-            QnnSupport.llmQnnFileName(modelType) ?: modelType.fileName
-        } else {
-            modelType.fileName
-        }
+        val mtpEnabled = llmMtpSwitch.isChecked
         setLLMControlsEnabled(false)
         processingTimeTextView.text = "Processing Time: -- ms"
         llmStatusTextView.text = if (needsInitialization) "Status: Initializing..." else "Status: Generating..."
@@ -2080,13 +2089,15 @@ class MainActivity : AppCompatActivity() {
                 val initialized = if (needsInitialization) {
                     llmSample.modelType = modelType
                     llmSample.backend = backend
+                    llmSample.mtpEnabled = mtpEnabled
                     llmSample.initialize(this@MainActivity, object : ModelDownloader.DownloadListener {
                         override fun onProgress(bytesDownloaded: Long, totalBytes: Long) {
                             if (!isCurrentOperation(operationId)) return
                             runOnUiThreadIfActive {
                                 if (!isCurrentOperation(operationId)) return@runOnUiThreadIfActive
+                                // 本体とMTPのAssistantを順にダウンロードするため、現在のファイル名を表示する
                                 showModelDownloadProgress(
-                                    modelFileName,
+                                    llmSample.downloadingFileName ?: llmSample.modelFileName(),
                                     bytesDownloaded,
                                     totalBytes,
                                 )
@@ -2151,7 +2162,7 @@ class MainActivity : AppCompatActivity() {
                     if (processingTime >= 0) {
                         val performance = llmSample.lastPerformance
                         llmStatusTextView.text = if (performance != null) {
-                            "Status: Complete - ${performance.summary()}"
+                            "Status: Complete${if (llmSample.isMtpActive) " (MTP)" else ""} - ${performance.summary()}"
                         } else {
                             "Status: Complete"
                         }
@@ -2197,6 +2208,7 @@ class MainActivity : AppCompatActivity() {
         val needsInitialization = !isInitialized
         val backend = selectedLLMBackend
         val modelType = selectedGemma4ModelType
+        val mtpEnabled = llmMtpSwitch.isChecked
         val thinking = toolUseThinkingSwitch.isChecked
         val generatingStatus = "Status: Generating... (Thinking: ${if (thinking) "ON" else "OFF"})"
         setLLMControlsEnabled(false)
@@ -2212,13 +2224,17 @@ class MainActivity : AppCompatActivity() {
                 val initialized = if (needsInitialization) {
                     toolUseSample.backend = backend
                     toolUseSample.modelType = modelType
-                    val modelFileName = toolUseSample.modelFileName()
+                    toolUseSample.mtpEnabled = mtpEnabled
                     toolUseSample.initialize(this@MainActivity, object : ModelDownloader.DownloadListener {
                         override fun onProgress(bytesDownloaded: Long, totalBytes: Long) {
                             if (!isCurrentOperation(operationId)) return
                             runOnUiThreadIfActive {
                                 if (!isCurrentOperation(operationId)) return@runOnUiThreadIfActive
-                                showModelDownloadProgress(modelFileName, bytesDownloaded, totalBytes)
+                                showModelDownloadProgress(
+                                    toolUseSample.downloadingFileName ?: toolUseSample.modelFileName(),
+                                    bytesDownloaded,
+                                    totalBytes,
+                                )
                             }
                         }
 
@@ -2367,6 +2383,7 @@ class MainActivity : AppCompatActivity() {
             val needsInitialization = !isInitialized
             val backend = selectedLLMBackend
             val modelType = selectedGemma4ModelType
+            val mtpEnabled = llmMtpSwitch.isChecked
             setLLMControlsEnabled(false)
             processingTimeTextView.text = "Processing Time: -- ms"
             llmStatusTextView.text = if (needsInitialization) "Status: Initializing..." else "Status: Generating..."
@@ -2428,6 +2445,7 @@ class MainActivity : AppCompatActivity() {
                     val initialized = if (needsInitialization) {
                         multimodalLLMSample.backend = backend
                         multimodalLLMSample.modelType = modelType
+                        multimodalLLMSample.mtpEnabled = mtpEnabled
                         multimodalLLMSample.initialize(this@MainActivity, listener)
                     } else {
                         true
@@ -2612,6 +2630,7 @@ class MainActivity : AppCompatActivity() {
         val needsInitialization = !isInitialized
         val backend = selectedLLMBackend
         val modelType = selectedGemma4ModelType
+        val mtpEnabled = llmMtpSwitch.isChecked
         setLLMControlsEnabled(false)
         processingTimeTextView.text = "Processing Time: -- ms"
         llmStatusTextView.text = if (needsInitialization) "Status: Initializing..." else "Status: Generating..."
@@ -2659,6 +2678,7 @@ class MainActivity : AppCompatActivity() {
                 val initialized = if (needsInitialization) {
                     almSample.backend = backend
                     almSample.modelType = modelType
+                    almSample.mtpEnabled = mtpEnabled
                     almSample.initialize(this@MainActivity, listener)
                 } else {
                     true

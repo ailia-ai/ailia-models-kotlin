@@ -180,6 +180,18 @@
                 android:layout_marginBottom="8dp"
                 android:visibility="gone" />
 
+            <!-- LLM/VLM/ALM/ToolUseでMTP(Multi-Token Prediction)を使うか。既定はON -->
+            <androidx.appcompat.widget.SwitchCompat
+                android:id="@+id/llmMtpSwitch"
+                android:layout_width="match_parent"
+                android:layout_height="48dp"
+                android:layout_marginBottom="8dp"
+                android:checked="true"
+                android:text="MTP"
+                android:textColor="?android:attr/textColorPrimary"
+                android:textSize="16sp"
+                android:visibility="gone" />
+
             <!-- ToolUseでThinking(推論過程の出力)を有効にするか。既定はOFF -->
             <androidx.appcompat.widget.SwitchCompat
                 android:id="@+id/toolUseThinkingSwitch"

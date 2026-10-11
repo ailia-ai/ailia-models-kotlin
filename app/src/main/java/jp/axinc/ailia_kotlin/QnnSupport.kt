@@ -49,7 +49,10 @@ object QnnSupport {
 
     /**
      * 変換済みQNNモデルのファイル名の接頭辞と、そのモデルを使えるSoC。
-     * ファイル名は "<prefix>-<soc>.qnn" (画像/音声エンコーダは "<prefix>-<soc>-mmproj.qnn")。
+     * テキストモデルはMTP対応版 "<prefix>-<soc>-<precision>-mtp.qnn" (ailia LLM 1.5.1)を使う。
+     * MTP対応版はAssistantを開かなければ従来通り1トークンずつ生成するため、MTPのON/OFFで同じファイルを使える。
+     * MTPのAssistantは "<prefix>-<soc>-<precision>-mtp-assistant.qnn"、
+     * 画像/音声エンコーダは "<prefix>-<soc>-mmproj.qnn" (ailia LLM 1.5.0)。
      *
      * Gemma 4 E4BはHexagon v69 (sm8475)のContext Binaryの2GB制約に収まらないため、
      * v73のsm7635のみで使用する。ここにないモデル/SoCの組み合わせはCPUで実行する。
@@ -59,6 +62,12 @@ object QnnSupport {
     private val LLM_QNN_MODELS = mapOf(
         LLMModelType.GEMMA_4_E2B to QnnLlmModel("gemma4-e2b", setOf("sm8475", "sm7635")),
         LLMModelType.GEMMA_4_E4B to QnnLlmModel("gemma4-e4b", setOf("sm7635")),
+    )
+
+    /** MTP対応のQNNモデルの活性値の精度。SoCごとに変換時の精度が異なる。 */
+    private val LLM_QNN_PRECISIONS = mapOf(
+        "sm8475" to "fp16",
+        "sm7635" to "int16",
     )
 
     /** ailia LLMのAPIで取得したSoC名(例: "sm8475")。QNNを利用できない端末ではnull。 */
@@ -86,7 +95,14 @@ object QnnSupport {
 
     /** VLM/ALMで使用する画像・音声エンコーダ(mmproj)のQNNモデルファイル名。 */
     fun llmQnnMmprojFileName(modelType: LLMModelType): String? =
-        llmQnnFileName(socName, modelType, mmproj = true)
+        llmQnnFileName(socName, modelType, QnnLlmFile.MMPROJ)
+
+    /** MTPのAssistant(ドラフトモデル)のQNNモデルファイル名。 */
+    fun llmQnnMtpAssistantFileName(modelType: LLMModelType): String? =
+        llmQnnFileName(socName, modelType, QnnLlmFile.MTP_ASSISTANT)
+
+    /** QNNモデルのファイルの種類。 */
+    internal enum class QnnLlmFile { MODEL, MMPROJ, MTP_ASSISTANT }
 
     /** SoC名を引数で受け取る判定本体(端末を用意せずテストできるようにするため)。 */
     internal fun isFp16SupportedSoc(soc: String?): Boolean =
@@ -96,13 +112,18 @@ object QnnSupport {
     internal fun llmQnnFileName(
         soc: String?,
         modelType: LLMModelType,
-        mmproj: Boolean = false,
+        file: QnnLlmFile = QnnLlmFile.MODEL,
     ): String? {
         if (soc == null) return null
         val model = LLM_QNN_MODELS[modelType] ?: return null
         if (soc !in model.socs) return null
+        val precision = LLM_QNN_PRECISIONS[soc] ?: return null
         val prefix = model.filePrefix
-        return if (mmproj) "$prefix-$soc-mmproj.qnn" else "$prefix-$soc.qnn"
+        return when (file) {
+            QnnLlmFile.MODEL -> "$prefix-$soc-$precision-mtp.qnn"
+            QnnLlmFile.MMPROJ -> "$prefix-$soc-mmproj.qnn"
+            QnnLlmFile.MTP_ASSISTANT -> "$prefix-$soc-$precision-mtp-assistant.qnn"
+        }
     }
 
     /** ailia SDKの環境名がQNNバックエンドかどうかを判定する。 */
