@@ -30,6 +30,18 @@ class AiliaToolUseSample {
     /** 使用するモデル。ツール呼び出しに対応するGemma 4のみ。 */
     var modelType: LLMModelType = LLMModelType.GEMMA_4_E2B
 
+    /** MTPを使うか。 */
+    var mtpEnabled: Boolean = true
+
+    /** 初期化時にMTPを有効にできたか。 */
+    var isMtpActive: Boolean = false
+        private set
+
+    /** ダウンロード中のファイル名。進捗表示に使う。 */
+    @Volatile
+    var downloadingFileName: String? = null
+        private set
+
     /** ツールで設定したエアコンの温度(摂氏)。未設定ならnull。 */
     var airConditionerTemperature: Double? = null
         private set
@@ -100,6 +112,7 @@ class AiliaToolUseSample {
             }
 
             Log.i(TAG, "Downloading ${modelType.displayName} model (${modelType.fileName})...")
+            downloadingFileName = modelType.fileName
             val modelFile = ModelDownloader.downloadLLMModel(context, modelType.fileName, progressListener)
             if (modelFile == null) {
                 Log.e(TAG, "Failed to download model")
@@ -107,11 +120,24 @@ class AiliaToolUseSample {
             }
             modelPath = modelFile.absolutePath
 
+            val mtpFileName = mtpFileNameOrNull()
+            val mtpFile = mtpFileName?.let {
+                Log.i(TAG, "Downloading MTP assistant ($it)...")
+                downloadingFileName = it
+                ModelDownloader.downloadLLMModel(context, it, progressListener)
+            }
+            if (mtpFileName != null && mtpFile == null) {
+                Log.e(TAG, "Failed to download MTP assistant")
+                return false
+            }
+
             Log.i(TAG, "Creating AiliaLLM instance...")
             llm = AiliaLLM()
 
             Log.i(TAG, "Opening model file: $modelPath")
             llm!!.openModelFile(modelPath!!, N_CTX)
+            // Assistantは本体を開いた後、最初のプロンプト設定より前に開く
+            isMtpActive = mtpFile != null && LLMMtp.open(llm!!, mtpFile.absolutePath)
             // ツール呼び出しの引数がぶれないよう、Tool Useではtemperatureを0にする
             llm!!.setSamplingParams(40, 0.9f, TEMPERATURE, 1234)
 
@@ -131,11 +157,18 @@ class AiliaToolUseSample {
     }
 
     /** Checks if the model is already downloaded. */
-    fun isModelDownloaded(context: Context): Boolean =
-        ModelDownloader.isLLMModelDownloaded(context, modelType.fileName)
+    fun isModelDownloaded(context: Context): Boolean {
+        val modelDownloaded = ModelDownloader.isLLMModelDownloaded(context, modelType.fileName)
+        val mtpDownloaded = mtpFileNameOrNull()?.let { ModelDownloader.isLLMModelDownloaded(context, it) } ?: true
+        return modelDownloaded && mtpDownloaded
+    }
 
     /** ダウンロードするモデルファイル名。 */
     fun modelFileName(): String = modelType.fileName
+
+    /** MTPを使う場合のAssistantのファイル名。MTP無効時や対応しないモデルではnull。 */
+    private fun mtpFileNameOrNull(): String? =
+        if (mtpEnabled) modelType.mtpFileName else null
 
     /**
      * Runs one user request, executing tool calls until the model answers.
@@ -307,6 +340,7 @@ class AiliaToolUseSample {
         } finally {
             llm = null
             isInitialized = false
+            isMtpActive = false
             modelPath = null
             conversationHistory = JSONArray()
             Log.i(TAG, "Tool Use released")

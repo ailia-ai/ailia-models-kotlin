@@ -179,14 +179,14 @@ class AiliaVoiceSample(private val modelDirectory: File) {
 
     /**
      * 蒸留モデル(small/base)のダウンロード。
-     * t2s(encoder/fsdec/sdec)はサイズ別、vitsは常にvits_distill_small.onnxを使用する。
+     * t2s(encoder/fsdec/sdec)とvitsはサイズ別のファイルを使用する。
      */
     private fun downloadModelV2ProDistill(size: String) {
         downloadFiles(
             "https://storage.googleapis.com/ailia-models/gpt-sovits-v2-pro-distill",
             "gpt-sovits-v2-pro-distill/",
             listOf("t2s_encoder_distill_${size}.onnx", "t2s_fsdec_distill_${size}.onnx",
-                   "t2s_sdec_distill_${size}.opt.onnx", "vits_distill_small.onnx")
+                   "t2s_sdec_distill_${size}.opt.onnx", "vits_distill_${size}.onnx")
         )
         downloadFiles(
             "https://storage.googleapis.com/ailia-models/gpt-sovits-v2-pro",
@@ -286,13 +286,12 @@ class AiliaVoiceSample(private val modelDirectory: File) {
                     val size = distillModelSize(modelType)
                     val distill = "${dir}/gpt-sovits-v2-pro-distill"
                     val v2pro = "${dir}/gpt-sovits-v2-pro"
-                    // vitsはsmall/baseどちらもvits_distill_small.onnxで固定
                     voice?.openGPTSoVITSV2ProModelFile(
                         encoder = "${distill}/t2s_encoder_distill_${size}.onnx",
                         decoder1 = "${distill}/t2s_fsdec_distill_${size}.onnx",
                         decoder2 = "${distill}/t2s_sdec_distill_${size}.opt.onnx",
                         ssl = "${v2pro}/cnhubert.onnx",
-                        vits = "${distill}/vits_distill_small.onnx",
+                        vits = "${distill}/vits_distill_${size}.onnx",
                         sv = "${v2pro}/sv.onnx",
                         chineseBert = null,
                         vocab = null

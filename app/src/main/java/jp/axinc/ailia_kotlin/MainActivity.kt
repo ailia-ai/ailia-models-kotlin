@@ -67,6 +67,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var llmBenchmarkButton: Button
     private lateinit var llmInputBar: LinearLayout
     private lateinit var toolUseThinkingSwitch: SwitchCompat
+    private lateinit var llmMtpSwitch: SwitchCompat
     private lateinit var almInputModeRadioGroup: RadioGroup
     private lateinit var almWavRadioButton: RadioButton
     private lateinit var almMicRadioButton: RadioButton
@@ -163,6 +164,12 @@ class MainActivity : AppCompatActivity() {
     private var imageAnalyzer: ImageAnalysis? = null
     private var camera: Camera? = null
     private var latestCameraBitmap: Bitmap? = null
+
+    /**
+     * VLMのカメラ入力で、チャット開始時のフレームに固定しているか。
+     * 固定中はカメラ映像を更新せず、ImageとCameraを切り替えると解除して更新を再開する。
+     */
+    private var vlmCameraFrameFrozen = false
 
     // カメラ選択(リストボックスで切り替え)
     private data class CameraChoice(val name: String, val selector: CameraSelector)
@@ -346,6 +353,9 @@ class MainActivity : AppCompatActivity() {
         llmBenchmarkButton = findViewById(R.id.llmBenchmarkButton)
         llmInputBar = findViewById(R.id.llmInputBar)
         toolUseThinkingSwitch = findViewById(R.id.toolUseThinkingSwitch)
+        llmMtpSwitch = findViewById(R.id.llmMtpSwitch)
+        // MTPのON/OFFを変えたらモデルを開き直す(Assistantは後から外せないため)
+        llmMtpSwitch.setOnCheckedChangeListener { _, _ -> releaseLLMSamples() }
         almInputModeRadioGroup = findViewById(R.id.almInputModeRadioGroup)
         almWavRadioButton = findViewById(R.id.almWavRadioButton)
         almMicRadioButton = findViewById(R.id.almMicRadioButton)
@@ -367,6 +377,7 @@ class MainActivity : AppCompatActivity() {
         voiceWaveformView = findViewById(R.id.voiceWaveformView)
         modelSpinner = findViewById(R.id.modelSpinner)
         rootScrollView = findViewById(R.id.rootScrollView)
+        setupFollowScroll()
         visionRunButton = findViewById(R.id.visionRunButton)
         speakerProfileLabel = findViewById(R.id.speakerProfileLabel)
         speakerProfileSpinner = findViewById(R.id.speakerProfileSpinner)
@@ -506,6 +517,7 @@ class MainActivity : AppCompatActivity() {
         // 切り替え前に開始したカメラ推論のUI反映も無効化する。
         visionDisplayGeneration.incrementAndGet()
         latestCameraBitmap = null
+        vlmCameraFrameFrozen = false
         processingTimeTextView.text = "Processing Time: -- ms"
         // Speech2Textでは同じTextViewをSpeech Resultとして使うため表記を切り替える。
         classificationResultTextView.text = if (currentAlgorithm == AlgorithmType.SPEECH_TO_TEXT) {
@@ -788,6 +800,21 @@ class MainActivity : AppCompatActivity() {
             }
             override fun onNothingSelected(parent: AdapterView<*>?) {}
         }
+    }
+
+    /**
+     * LLM系のモデルを解放する。MTPの切り替え時に呼び出す。
+     * MTPのAssistantはインスタンスを作り直さないと外せないため、次のSend押下時に初期化し直す。
+     */
+    private fun releaseLLMSamples() {
+        llmSample.release()
+        multimodalLLMSample.release()
+        almSample.release()
+        toolUseSample.release()
+        isInitialized = false
+        llmChatContainer.removeAllViews()
+        setLLMControlsEnabled(true)
+        llmStatusTextView.text = "Status: Press Send to run"
     }
 
     /** モデル選択スピナーの選択変更を各アルゴリズムに反映する */
@@ -1083,6 +1110,7 @@ class MainActivity : AppCompatActivity() {
         llmOutputLabel,
         llmChatContainer,
         llmStatusTextView,
+        llmMtpSwitch,
         toolUseThinkingSwitch,
         llmBenchmarkButton,
         almInputModeRadioGroup,
@@ -1176,6 +1204,7 @@ class MainActivity : AppCompatActivity() {
             llmOutputLabel,
             llmChatContainer,
             llmStatusTextView,
+            llmMtpSwitch,
         )
 
         // PPS計測用の貼り付けボタンはテキストのLLM画面だけに表示する
@@ -1254,6 +1283,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun updateUIVisibility() {
+        // 画面を切り替えたら、前の画面でスクロールを止めていても追随し直す
+        followScrollToBottom = true
         val isCameraMode = modeRadioGroup.checkedRadioButtonId == R.id.cameraRadioButton
         val visibleViews = visibleViewsByAlgorithm(isCameraMode).getValue(currentAlgorithm)
         managedAlgorithmViews().forEach { view ->
@@ -1478,6 +1509,10 @@ class MainActivity : AppCompatActivity() {
     private fun executeModeSwitch(modeId: Int) {
         // モード切り替え時はRun押下からやり直す
         resetRunState()
+        // VLMのカメラ映像の固定を解除し、Cameraに戻したときに更新を再開する
+        vlmCameraFrameFrozen = false
+        // VLMは最初の質問だけ画像を送るため、画像とカメラを切り替えたら会話をやり直す
+        if (currentAlgorithm == AlgorithmType.MULTIMODAL_LLM) resetMultimodalChat(multimodalLLMSample)
         when (modeId) {
             R.id.imageRadioButton -> {
                 updateUIVisibility()
@@ -1747,8 +1782,57 @@ class MainActivity : AppCompatActivity() {
         return bubble
     }
 
+    /**
+     * 一番下まで自動でスクロールするか。生成中にユーザーが上へスクロールしたら止め、
+     * 一番下まで戻したら再開する。送信時と画面切り替え時は再び追随させる。
+     */
+    private var followScrollToBottom = true
+
+    /** 自動スクロールの追随をやめる「一番下」からの距離。 */
+    private val followScrollThresholdPx by lazy { (32 * resources.displayMetrics.density).toInt() }
+
+    /** 一番下へのスクロールを次の描画前に予約済みか。トークンごとに予約が積み重ならないようにする。 */
+    private var scrollToBottomPending = false
+
+    /** 追随中なら一番下までスクロールする。 */
     private fun scrollResultToBottom() {
-        rootScrollView.post { rootScrollView.fullScroll(View.FOCUS_DOWN) }
+        if (!followScrollToBottom || scrollToBottomPending) return
+        scrollToBottomPending = true
+        // 追加したテキストのレイアウトが終わってから移動しないと、一番下に届かず
+        // ユーザーが上へスクロールしたと誤判定するため、描画の直前に移動する
+        rootScrollView.viewTreeObserver.addOnPreDrawListener(object : android.view.ViewTreeObserver.OnPreDrawListener {
+            override fun onPreDraw(): Boolean {
+                rootScrollView.viewTreeObserver.removeOnPreDrawListener(this)
+                scrollToBottomPending = false
+                if (!followScrollToBottom) return true
+                // fullScrollはスムーズスクロールになり、途中の位置をユーザー操作と区別できないため一度に移動する
+                val content = rootScrollView.getChildAt(0) ?: return true
+                val bottom = content.bottom + rootScrollView.paddingBottom - rootScrollView.height
+                rootScrollView.scrollTo(0, bottom.coerceAtLeast(0))
+                return true
+            }
+        })
+        rootScrollView.invalidate()
+    }
+
+    /** 追随を再開して一番下までスクロールする。送信時など、新しい出力を見せたいときに使う。 */
+    private fun startFollowingScroll() {
+        followScrollToBottom = true
+        scrollResultToBottom()
+    }
+
+    /**
+     * スクロール位置が変わったら、一番下付近にいるかで追随の有無を決める。
+     * トークンの追加では位置が変わらず、自動スクロールは一番下へ一度に移動するため、
+     * 一番下から離れるのはユーザーが上へスクロールしたときだけになる。
+     */
+    private fun setupFollowScroll() {
+        rootScrollView.viewTreeObserver.addOnScrollChangedListener {
+            val content = rootScrollView.getChildAt(0) ?: return@addOnScrollChangedListener
+            val distanceToBottom = content.bottom + rootScrollView.paddingBottom -
+                (rootScrollView.scrollY + rootScrollView.height)
+            followScrollToBottom = distanceToBottom <= followScrollThresholdPx
+        }
     }
 
     /** モデルダウンロードの進捗を画面下部の共通ProgressBarへ表示する。 */
@@ -1757,10 +1841,13 @@ class MainActivity : AppCompatActivity() {
         bytesDownloaded: Long = 0,
         totalBytes: Long = 0,
     ) {
+        // 進捗は画面下部にあり、VLMなどでは画面外に隠れるため、表示を始めたときだけ一番下までスクロールする
+        val startedShowing = modelDownloadProgressBar.visibility != View.VISIBLE
         modelDownloadProgressTextView.text =
             formatDownloadProgress(fileName, bytesDownloaded, totalBytes)
         modelDownloadProgressTextView.visibility = View.VISIBLE
         modelDownloadProgressBar.visibility = View.VISIBLE
+        if (startedShowing) scrollResultToBottom()
         if (totalBytes > 0) {
             modelDownloadProgressBar.isIndeterminate = false
             modelDownloadProgressBar.progress =
@@ -1837,6 +1924,32 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    /**
+     * VLM / ALMの会話履歴とチャット表示をリセットする。
+     * メディアは会話の最初の質問だけで送るため、次の質問で新しい入力を送り直す。
+     */
+    private fun resetMultimodalChat(sample: AiliaMultimodalLLMSample) {
+        sample.clearHistory()
+        llmChatContainer.removeAllViews()
+        llmStatusTextView.text = "Status: Press Send to run"
+    }
+
+    /**
+     * VLMのカメラ映像をチャット開始時のフレームで止める。
+     * カメラを止めるとプレビューは最後のフレームのまま残り、Image/Cameraの切り替えでstartCameraし直す。
+     */
+    private fun freezeVlmCameraFrame() {
+        vlmCameraFrameFrozen = true
+        stopCamera()
+    }
+
+    /** VLM / ALMの完了時のステータス。MTPの有無とTTFT / TPSを表示する。 */
+    private fun multimodalCompleteStatus(sample: AiliaMultimodalLLMSample): String {
+        val mtp = if (sample.isMtpActive) " (MTP)" else ""
+        val performance = sample.lastPerformance ?: return "Status: Complete$mtp"
+        return "Status: Complete$mtp - ${performance.summary()}"
+    }
+
     /** Stopで止めた場合はエラーではなく停止として表示する。 */
     private fun llmErrorStatus(error: String): String =
         if (llmStopRequested) "Status: Stopped" else "Status: Error - $error"
@@ -1844,7 +1957,8 @@ class MainActivity : AppCompatActivity() {
     private fun setModelOperationControlsEnabled(enabled: Boolean) {
         // ALMは録音中もSendを押せないようにする
         setLLMControlsEnabled(enabled && !almRecorder.isRecording)
-        // 生成中に入力ソースを変えるとモデルを解放してしまうため止める
+        // 生成中にMTPや入力ソースを変えるとモデルを解放してしまうため止める
+        llmMtpSwitch.isEnabled = enabled
         toolUseThinkingSwitch.isEnabled = enabled
         almRecordButton.isEnabled = enabled
         almInputModeRadioGroup.isEnabled = enabled
@@ -1954,7 +2068,7 @@ class MainActivity : AppCompatActivity() {
         val operationId = beginModelOperation() ?: return
         val needsInitialization = !isInitialized
         val modelType = selectedLLMModelType
-        val modelFileName = modelType.fileName
+        val mtpEnabled = llmMtpSwitch.isChecked
         setLLMControlsEnabled(false)
         processingTimeTextView.text = "Processing Time: -- ms"
         llmStatusTextView.text = if (needsInitialization) "Status: Initializing..." else "Status: Generating..."
@@ -1962,20 +2076,22 @@ class MainActivity : AppCompatActivity() {
         addChatBubble(userInput, isUser = true)
         val assistantBubble = addChatBubble("", isUser = false)
         // Statusは吹き出しの下にあるため、送信直後にも一番下までスクロールして見えるようにする
-        scrollResultToBottom()
+        startFollowingScroll()
         llmInputEditText.setText("")
 
         cameraExecutor.execute {
             try {
                 val initialized = if (needsInitialization) {
                     llmSample.modelType = modelType
+                    llmSample.mtpEnabled = mtpEnabled
                     llmSample.initialize(this@MainActivity, object : ModelDownloader.DownloadListener {
                         override fun onProgress(bytesDownloaded: Long, totalBytes: Long) {
                             if (!isCurrentOperation(operationId)) return
                             runOnUiThreadIfActive {
                                 if (!isCurrentOperation(operationId)) return@runOnUiThreadIfActive
+                                // 本体とMTPのAssistantを順にダウンロードするため、現在のファイル名を表示する
                                 showModelDownloadProgress(
-                                    modelFileName,
+                                    llmSample.downloadingFileName ?: llmSample.modelFileName(),
                                     bytesDownloaded,
                                     totalBytes,
                                 )
@@ -2040,7 +2156,7 @@ class MainActivity : AppCompatActivity() {
                     if (processingTime >= 0) {
                         val performance = llmSample.lastPerformance
                         llmStatusTextView.text = if (performance != null) {
-                            "Status: Complete - ${performance.summary()}"
+                            "Status: Complete${if (llmSample.isMtpActive) " (MTP)" else ""} - ${performance.summary()}"
                         } else {
                             "Status: Complete"
                         }
@@ -2085,6 +2201,7 @@ class MainActivity : AppCompatActivity() {
         val operationId = beginModelOperation() ?: return
         val needsInitialization = !isInitialized
         val modelType = selectedGemma4ModelType
+        val mtpEnabled = llmMtpSwitch.isChecked
         val thinking = toolUseThinkingSwitch.isChecked
         val generatingStatus = "Status: Generating... (Thinking: ${if (thinking) "ON" else "OFF"})"
         setLLMControlsEnabled(false)
@@ -2092,20 +2209,24 @@ class MainActivity : AppCompatActivity() {
         addChatBubble(userInput, isUser = true)
         // UIスレッドからのみ参照する。ツール実行後のターンでは新しい吹き出しに差し替える。
         var assistantBubble = addChatBubble("", isUser = false)
-        scrollResultToBottom()
+        startFollowingScroll()
         llmInputEditText.setText("")
 
         cameraExecutor.execute {
             try {
                 val initialized = if (needsInitialization) {
                     toolUseSample.modelType = modelType
-                    val modelFileName = toolUseSample.modelFileName()
+                    toolUseSample.mtpEnabled = mtpEnabled
                     toolUseSample.initialize(this@MainActivity, object : ModelDownloader.DownloadListener {
                         override fun onProgress(bytesDownloaded: Long, totalBytes: Long) {
                             if (!isCurrentOperation(operationId)) return
                             runOnUiThreadIfActive {
                                 if (!isCurrentOperation(operationId)) return@runOnUiThreadIfActive
-                                showModelDownloadProgress(modelFileName, bytesDownloaded, totalBytes)
+                                showModelDownloadProgress(
+                                    toolUseSample.downloadingFileName ?: toolUseSample.modelFileName(),
+                                    bytesDownloaded,
+                                    totalBytes,
+                                )
                             }
                         }
 
@@ -2253,6 +2374,7 @@ class MainActivity : AppCompatActivity() {
             val operationId = beginModelOperation() ?: return
             val needsInitialization = !isInitialized
             val modelType = selectedGemma4ModelType
+            val mtpEnabled = llmMtpSwitch.isChecked
             setLLMControlsEnabled(false)
             processingTimeTextView.text = "Processing Time: -- ms"
             llmStatusTextView.text = if (needsInitialization) "Status: Initializing..." else "Status: Generating..."
@@ -2260,10 +2382,14 @@ class MainActivity : AppCompatActivity() {
             addChatBubble(userInput, isUser = true)
             val assistantBubble = addChatBubble("", isUser = false)
         // Statusは吹き出しの下にあるため、送信直後にも一番下までスクロールして見えるようにする
-        scrollResultToBottom()
+        startFollowingScroll()
             llmInputEditText.setText("")
 
             val isCameraMode = modeRadioGroup.checkedRadioButtonId == R.id.cameraRadioButton
+            // チャットを始めたときのカメラ映像で確定し、以降はImage/Cameraを切り替えるまで更新しない
+            if (isCameraMode && !vlmCameraFrameFrozen && latestCameraBitmap != null) {
+                freezeVlmCameraFrame()
+            }
             val cameraFrame = if (isCameraMode) latestCameraBitmap?.copy(Bitmap.Config.ARGB_8888, false) else null
 
             cameraExecutor.execute {
@@ -2313,6 +2439,7 @@ class MainActivity : AppCompatActivity() {
 
                     val initialized = if (needsInitialization) {
                         multimodalLLMSample.modelType = modelType
+                        multimodalLLMSample.mtpEnabled = mtpEnabled
                         multimodalLLMSample.initialize(this@MainActivity, listener)
                     } else {
                         true
@@ -2341,7 +2468,7 @@ class MainActivity : AppCompatActivity() {
                         setLLMControlsEnabled(true)
                         hideModelDownloadProgress()
                         if (processingTime >= 0) {
-                            llmStatusTextView.text = "Status: Complete"
+                            llmStatusTextView.text = multimodalCompleteStatus(multimodalLLMSample)
                             processingTimeTextView.text = "Processing Time: ${processingTime}ms"
                         }
                         if (needsInitialization) loadSampleImageForMultimodal()
@@ -2381,6 +2508,8 @@ class MainActivity : AppCompatActivity() {
             if (almRecorder.isRecording) almRecorder.cancelRecording()
             almAudioPath = null
             almWaveformView.clear()
+            // ALMは最初の質問だけ音声を送るため、WavとMicを切り替えたら会話をやり直す
+            resetMultimodalChat(almSample)
             updateAlmInputVisibility()
         }
 
@@ -2469,7 +2598,8 @@ class MainActivity : AppCompatActivity() {
                         almAudioPath = file.absolutePath
                         almWaveformView.showAudio(audio)
                         updateAlmInputVisibility()
-                        llmStatusTextView.text = "Status: Press Send to run"
+                        // 新しい録音は次の質問で送り直すため、会話をやり直す
+                        resetMultimodalChat(almSample)
                     }
                 }
 
@@ -2496,13 +2626,15 @@ class MainActivity : AppCompatActivity() {
         val operationId = beginModelOperation() ?: return
         val needsInitialization = !isInitialized
         val modelType = selectedGemma4ModelType
+        val mtpEnabled = llmMtpSwitch.isChecked
         setLLMControlsEnabled(false)
         processingTimeTextView.text = "Processing Time: -- ms"
         llmStatusTextView.text = if (needsInitialization) "Status: Initializing..." else "Status: Generating..."
         addChatBubble(userInput, isUser = true)
         val assistantBubble = addChatBubble("", isUser = false)
         // Statusは吹き出しの下にあるため、送信直後にも一番下までスクロールして見えるようにする
-        scrollResultToBottom()
+        startFollowingScroll()
+        llmInputEditText.setText("")
 
         cameraExecutor.execute {
             try {
@@ -2542,6 +2674,7 @@ class MainActivity : AppCompatActivity() {
 
                 val initialized = if (needsInitialization) {
                     almSample.modelType = modelType
+                    almSample.mtpEnabled = mtpEnabled
                     almSample.initialize(this@MainActivity, listener)
                 } else {
                     true
@@ -2570,7 +2703,7 @@ class MainActivity : AppCompatActivity() {
                     setLLMControlsEnabled(true)
                     hideModelDownloadProgress()
                     if (processingTime >= 0) {
-                        llmStatusTextView.text = "Status: Complete"
+                        llmStatusTextView.text = multimodalCompleteStatus(almSample)
                         processingTimeTextView.text = "Processing Time: ${processingTime}ms"
                     }
                     finishModelOperation(operationId)
@@ -4348,8 +4481,11 @@ class MainActivity : AppCompatActivity() {
                         return@runOnUiThreadIfActive
                     }
                     if (currentAlgorithm == AlgorithmType.MULTIMODAL_LLM) {
-                        latestCameraBitmap = camera_bitmap
-                        multimodalImageView.setImageBitmap(camera_bitmap)
+                        // チャット開始時のフレームに固定している間は更新しない
+                        if (!vlmCameraFrameFrozen) {
+                            latestCameraBitmap = camera_bitmap
+                            multimodalImageView.setImageBitmap(camera_bitmap)
+                        }
                     } else if (currentAlgorithm != AlgorithmType.TOKENIZE) {
                         imageView.setImageBitmap(bitmap)
                     }
