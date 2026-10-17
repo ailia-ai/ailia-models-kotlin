@@ -10,20 +10,84 @@ import java.util.concurrent.atomic.AtomicBoolean
  * Available LLM models (URLs follow ailia-models-flutter: /gemma/<fileName>).
  *
  * @property mmprojFileName CPU(GGUF)で画像/音声を入力するためのmmproj。対応しないモデルはnull。
+ * @property mtpFileName CPU(GGUF)でMTPに使うAssistant(ドラフトモデル)。対応しないモデルはnull。
  */
 enum class LLMModelType(
     val displayName: String,
     val fileName: String,
     val mmprojFileName: String? = null,
+    val mtpFileName: String? = null,
 ) {
-    GEMMA_4_E2B("Gemma 4 E2B", "gemma-4-E2B-it-Q4_K_M.gguf", "gemma-4-E2B-it-mmproj-F16.gguf"),
-    GEMMA_4_E4B("Gemma 4 E4B", "gemma-4-E4B-it-Q4_K_M.gguf", "gemma-4-E4B-it-mmproj-F16.gguf"),
+    GEMMA_4_E2B(
+        "Gemma 4 E2B", "gemma-4-E2B-it-Q4_K_M.gguf", "gemma-4-E2B-it-mmproj-F16.gguf",
+        "mtp-gemma-4-E2B-it-Q4_0.gguf",
+    ),
+    GEMMA_4_E4B(
+        "Gemma 4 E4B", "gemma-4-E4B-it-Q4_K_M.gguf", "gemma-4-E4B-it-mmproj-F16.gguf",
+        "mtp-gemma-4-E4B-it-Q4_0.gguf",
+    ),
     GEMMA_2_2B("Gemma 2 2B", "gemma-2-2b-it-Q4_K_M.gguf"),
     ;
 
     companion object {
         /** VLM / ALM / ToolUseで選べるモデル(画像・音声入力とツール呼び出しに対応するGemma 4)。 */
         val GEMMA_4_MODELS = listOf(GEMMA_4_E2B, GEMMA_4_E4B)
+    }
+}
+
+/**
+ * LLMの実行バックエンド。
+ * QNNはSoC固有の変換済みモデル(.qnn)を使うため、対応SoC/モデルの場合のみ選択できる。
+ */
+enum class LLMBackend(val displayName: String) {
+    CPU("CPU"),
+    QNN("QNN (NPU)"),
+}
+
+/**
+ * MTP(Multi-Token Prediction)のAssistant(ドラフトモデル)の取得と有効化。
+ *
+ * Assistantが次の数トークンを予想し、本体がまとめて検証することでDecodeを高速化する。
+ * 本体を開いた後、最初のプロンプト設定より前に1回だけ[open]を呼び出す。
+ */
+object LLMMtp {
+    private const val TAG = "LLMMtp"
+
+    /** Assistantが1回に生成する候補トークン数。QNNは1〜3に対応する。 */
+    const val N_DRAFT = 3
+
+    /** モデル/バックエンドに対応するAssistantのファイル名。MTPに対応しない組み合わせではnull。 */
+    fun assistantFileName(modelType: LLMModelType, backend: LLMBackend): String? = when (backend) {
+        LLMBackend.CPU -> modelType.mtpFileName
+        LLMBackend.QNN -> QnnSupport.llmQnnMtpAssistantFileName(modelType)
+    }
+
+    fun download(
+        context: Context,
+        fileName: String,
+        backend: LLMBackend,
+        listener: ModelDownloader.DownloadListener?,
+    ): java.io.File? = when (backend) {
+        LLMBackend.CPU -> ModelDownloader.downloadLLMModel(context, fileName, listener)
+        LLMBackend.QNN -> ModelDownloader.downloadQnnLLMModel(context, fileName, listener)
+    }
+
+    fun isDownloaded(context: Context, fileName: String, backend: LLMBackend): Boolean = when (backend) {
+        LLMBackend.CPU -> ModelDownloader.isLLMModelDownloaded(context, fileName)
+        LLMBackend.QNN -> ModelDownloader.isQnnLLMModelDownloaded(context, fileName)
+    }
+
+    /**
+     * Assistantを開いてMTPを有効にする。
+     * 失敗してもMTPが有効にならないだけで通常の生成は続けられるため、例外は投げずにfalseを返す。
+     */
+    fun open(llm: AiliaLLM, path: String): Boolean = try {
+        llm.openMtpModel(path, N_DRAFT)
+        Log.i(TAG, "MTP enabled: $path (n_draft=$N_DRAFT)")
+        true
+    } catch (e: Exception) {
+        Log.w(TAG, "Failed to enable MTP, falling back to normal decoding: ${e.message}", e)
+        false
     }
 }
 
@@ -70,10 +134,25 @@ class AiliaLLMSample {
     private val cancelRequested = AtomicBoolean(false)
 
     var modelType: LLMModelType = LLMModelType.GEMMA_4_E2B
+    var backend: LLMBackend = LLMBackend.CPU
+
+    /** MTPを使うか。Assistantのないモデル(Gemma 2など)では無視する。 */
+    var mtpEnabled: Boolean = true
+
+    /** 初期化時にMTPを有効にできたか。 */
+    var isMtpActive: Boolean = false
+        private set
+
+    /** ダウンロード中のファイル名。進捗表示に使う。 */
+    @Volatile
+    var downloadingFileName: String? = null
+        private set
 
     companion object {
         private const val TAG = "AiliaLLMSample"
         private const val N_CTX = 8192 // Context window size
+        // QNNモデルはコンテキスト長が変換時に固定されるため、0を指定してモデル内の値を使う
+        private const val N_CTX_QNN = 0
         private const val MAX_GENERATION_STEPS = 4096
     }
 
@@ -100,19 +179,44 @@ class AiliaLLMSample {
                 release()
             }
 
-            Log.i(TAG, "Downloading ${modelType.displayName} model (${modelType.fileName})...")
-            val modelFile = ModelDownloader.downloadLLMModel(context, modelType.fileName, progressListener)
+            val qnnFileName = qnnFileNameOrNull()
+            if (backend == LLMBackend.QNN && qnnFileName == null) {
+                Log.e(TAG, "QNN model is not available for ${modelType.displayName} on ${QnnSupport.socName}")
+                return false
+            }
+
+            val fileName = qnnFileName ?: modelType.fileName
+            Log.i(TAG, "Downloading ${modelType.displayName} model ($fileName) for ${backend.displayName}...")
+            downloadingFileName = fileName
+            val modelFile = if (qnnFileName != null) {
+                ModelDownloader.downloadQnnLLMModel(context, qnnFileName, progressListener)
+            } else {
+                ModelDownloader.downloadLLMModel(context, modelType.fileName, progressListener)
+            }
             if (modelFile == null) {
                 Log.e(TAG, "Failed to download model")
                 return false
             }
             modelPath = modelFile.absolutePath
 
+            val mtpFileName = mtpFileNameOrNull()
+            val mtpFile = mtpFileName?.let {
+                Log.i(TAG, "Downloading MTP assistant ($it) for ${backend.displayName}...")
+                downloadingFileName = it
+                LLMMtp.download(context, it, backend, progressListener)
+            }
+            if (mtpFileName != null && mtpFile == null) {
+                Log.e(TAG, "Failed to download MTP assistant")
+                return false
+            }
+
             Log.i(TAG, "Creating AiliaLLM instance...")
             llm = AiliaLLM()
 
             Log.i(TAG, "Opening model file: $modelPath")
-            llm!!.openModelFile(modelPath!!, N_CTX)
+            llm!!.openModelFile(modelPath!!, if (qnnFileName != null) N_CTX_QNN else N_CTX)
+            // Assistantは本体を開いた後、最初のプロンプト設定より前に開く
+            isMtpActive = mtpFile != null && LLMMtp.open(llm!!, mtpFile.absolutePath)
 
             // Set default sampling parameters
             llm!!.setSamplingParams(40, 0.9f, 0.4f, 1234)
@@ -136,7 +240,14 @@ class AiliaLLMSample {
      * Checks if the model is already downloaded.
      */
     fun isModelDownloaded(context: Context): Boolean {
-        return ModelDownloader.isLLMModelDownloaded(context, modelType.fileName)
+        val qnnFileName = qnnFileNameOrNull()
+        val modelDownloaded = if (qnnFileName != null) {
+            ModelDownloader.isQnnLLMModelDownloaded(context, qnnFileName)
+        } else {
+            ModelDownloader.isLLMModelDownloaded(context, modelType.fileName)
+        }
+        val mtpDownloaded = mtpFileNameOrNull()?.let { LLMMtp.isDownloaded(context, it, backend) } ?: true
+        return modelDownloaded && mtpDownloaded
     }
 
     /**
@@ -151,8 +262,16 @@ class AiliaLLMSample {
         return BenchmarkPrompt.build(context, targetTokens) { text -> model.getTokenCount(text) }
     }
 
-    /** 現在のモデルでダウンロードするモデルファイル名。 */
-    fun modelFileName(): String = modelType.fileName
+    /** 現在のバックエンド/モデルでダウンロードするモデルファイル名。 */
+    fun modelFileName(): String = qnnFileNameOrNull() ?: modelType.fileName
+
+    /** QNNを選択している場合のQNNモデルファイル名。CPU時や未対応の組み合わせではnull。 */
+    private fun qnnFileNameOrNull(): String? =
+        if (backend == LLMBackend.QNN) QnnSupport.llmQnnFileName(modelType) else null
+
+    /** MTPを使う場合のAssistantのファイル名。MTP無効時や対応しないモデルではnull。 */
+    private fun mtpFileNameOrNull(): String? =
+        if (mtpEnabled) LLMMtp.assistantFileName(modelType, backend) else null
 
     /**
      * Generates a response for the given user input.
@@ -306,6 +425,7 @@ class AiliaLLMSample {
         } finally {
             llm = null
             isInitialized = false
+            isMtpActive = false
             modelPath = null
             conversationHistory.clear()
             Log.i(TAG, "LLM released")

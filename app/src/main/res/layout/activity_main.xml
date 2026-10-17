@@ -172,6 +172,79 @@
             android:orientation="vertical"
             android:padding="16dp">
 
+            <!-- Settings画面のデバッグオプション。設定は永続化せず、再起動で既定値に戻る -->
+            <TextView
+                android:id="@+id/settingsDebugLabel"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="8dp"
+                android:text="Debug options"
+                android:textColor="?android:attr/textColorPrimary"
+                android:textSize="18sp"
+                android:textStyle="bold"
+                android:visibility="gone" />
+
+            <TextView
+                android:id="@+id/settingsQnnFormatLabel"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="QNN model format (.qnn)"
+                android:textColor="?android:attr/textColorPrimary"
+                android:textSize="16sp"
+                android:visibility="gone" />
+
+            <RadioGroup
+                android:id="@+id/settingsQnnFormatRadioGroup"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:visibility="gone">
+
+                <RadioButton
+                    android:id="@+id/settingsQnnFormatV151RadioButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="48dp"
+                    android:layout_marginEnd="16dp"
+                    android:checked="true"
+                    android:text="v1.5.1" />
+
+                <RadioButton
+                    android:id="@+id/settingsQnnFormatV150RadioButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="48dp"
+                    android:text="v1.5.0" />
+            </RadioGroup>
+
+            <TextView
+                android:id="@+id/settingsQnnFormatNoteTextView"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="8dp"
+                android:text="v1.5.0 uses the previous QNN models without MTP. Not saved: resets to v1.5.1 on restart."
+                android:textColor="?android:attr/textColorSecondary"
+                android:textSize="13sp"
+                android:visibility="gone" />
+
+            <!-- LLM/VLM/ALMのバックエンド選択。生成中は切り替えられないため画面上部に置く -->
+            <Spinner
+                android:id="@+id/llmEnvSpinner"
+                android:layout_width="match_parent"
+                android:layout_height="48dp"
+                android:layout_marginBottom="8dp"
+                android:visibility="gone" />
+
+            <!-- LLM/VLM/ALM/ToolUseでMTP(Multi-Token Prediction)を使うか。既定はON -->
+            <androidx.appcompat.widget.SwitchCompat
+                android:id="@+id/llmMtpSwitch"
+                android:layout_width="match_parent"
+                android:layout_height="48dp"
+                android:layout_marginBottom="8dp"
+                android:checked="true"
+                android:text="MTP"
+                android:textColor="?android:attr/textColorPrimary"
+                android:textSize="16sp"
+                android:visibility="gone" />
+
             <!-- ToolUseでThinking(推論過程の出力)を有効にするか。既定はOFF -->
             <androidx.appcompat.widget.SwitchCompat
                 android:id="@+id/toolUseThinkingSwitch"

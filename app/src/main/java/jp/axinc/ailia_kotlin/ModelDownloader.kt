@@ -35,6 +35,15 @@ object ModelDownloader {
     /** 進捗通知の間隔。数GBのモデルで通知がログ/UIを圧迫しないように間引く。 */
     private const val PROGRESS_STEP_BYTES = 4L * 1024 * 1024
 
+    /** 変換済みQNNモデル(.qnn)の配置先。ailia LLMのバージョンごとにディレクトリが分かれる。 */
+    private const val QNN_LLM_PATH = "gemma/qnn/v1.5.0"
+
+    /** ailia LLM 1.5.1向けのQNNモデル(-mtp.qnn / -mtp-assistant.qnn / -mmproj.qnn)の配置先。 */
+    private const val QNN_LLM_MTP_PATH = "gemma/qnn/v1.5.1"
+
+    /** ailia LLM 1.5.1向けのQNNモデルのファイル名(精度を含む)。 */
+    private val QNN_LLM_V151_NAME = Regex("-(fp16|int16)-")
+
     const val GEMMA_2_MODEL_URL = "$BASE_URL/gemma/gemma-2-2b-it-Q4_K_M.gguf"
     const val SAMPLE_IMAGE_URL = "$BASE_URL/misc/sample_image.jpg"
 
@@ -61,6 +70,22 @@ object ModelDownloader {
             ModelFileSpec("$BASE_URL/gemma/$fileName", fileName),
             listener,
         )
+    }
+
+    /** SoC固有のQNNモデル(.qnn)をダウンロードする。 */
+    fun downloadQnnLLMModel(
+        context: Context,
+        fileName: String,
+        listener: DownloadListener? = null,
+    ): File? = downloadFile(modelDirectory(context), qnnLLMModelSpec(fileName), listener)
+
+    fun isQnnLLMModelDownloaded(context: Context, fileName: String): Boolean =
+        isDownloaded(modelDirectory(context), qnnLLMModelSpec(fileName))
+
+    private fun qnnLLMModelSpec(fileName: String): ModelFileSpec {
+        // 1.5.1向けのファイルは "<prefix>-<soc>-<precision>-..." と精度を含む。1.5.0向けは精度を含まない
+        val path = if (QNN_LLM_V151_NAME.containsMatchIn(fileName)) QNN_LLM_MTP_PATH else QNN_LLM_PATH
+        return ModelFileSpec("$BASE_URL/$path/$fileName", fileName)
     }
 
     fun downloadFile(

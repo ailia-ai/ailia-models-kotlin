@@ -14,22 +14,43 @@ import java.util.concurrent.atomic.AtomicBoolean
 /**
  * マルチモーダル入力の種類。
  * VLM(画像)とALM(音声)で同じGemma 4 E2B + mmprojを使い、入力メディアのみが異なる。
+ *
+ * @property mediaBeforeText メディアを質問より前に置くか。Gemma 4のモデルカードの推奨
+ *   (画像はテキストの前、音声はテキストの後)に従う。
  */
-enum class MultimodalMediaType(val mediaType: String, val systemPrompt: String) {
-    IMAGE(
-        "image",
-        "You are a helpful assistant that can understand images. Describe images briefly and concisely.",
-    ),
-    AUDIO(
-        "audio",
-        "You are a helpful assistant that can understand audio. Describe audio briefly and concisely.",
-    ),
+enum class MultimodalMediaType(val mediaType: String, val mediaBeforeText: Boolean) {
+    IMAGE("image", mediaBeforeText = true),
+    AUDIO("audio", mediaBeforeText = false),
+}
+
+/**
+ * VLM / ALMの1回の生成で計測した性能。
+ *
+ * 画像・音声のエンコードはsetPrompt()、Prefillは最初のgenerate()で実行されるため、
+ * TTFTはsetPrompt()の開始から最初のgenerate()が返るまでの時間で求める。
+ */
+data class MultimodalLLMPerformance(
+    val ttftMs: Long,
+    val generatedTokens: Int,
+    val decodeMs: Long,
+) {
+    /** Decodeスループット (tokens/s)。最初のトークンはTTFTに含めるため除外する。 */
+    val decodeTokensPerSecond: Double =
+        if (decodeMs > 0) generatedTokens * 1000.0 / decodeMs else 0.0
+
+    /** UIに表示する1行のサマリ。 */
+    fun summary(): String = String.format(
+        java.util.Locale.ROOT,
+        "TTFT %d ms / Decode %d tokens %.2f tokens/s",
+        ttftMs, generatedTokens, decodeTokensPerSecond,
+    )
 }
 
 /**
  * Sample class demonstrating ailia Multimodal LLM inference (VLM / ALM).
  *
  * Gemma 4 (E2B / E4B)をテキストモデルとして使い、mmprojで画像または音声を入力する。
+ * バックエンドにQNNを選ぶと、SoC固有の変換済みモデル(.qnn)をNPUで実行する。
  */
 class AiliaMultimodalLLMSample(
     private val mediaType: MultimodalMediaType = MultimodalMediaType.IMAGE,
@@ -41,14 +62,32 @@ class AiliaMultimodalLLMSample(
     private var projectorPath: String? = null
     private var sampleMediaPath: String? = null
     private val conversationHistory = mutableListOf<AiliaLLMMultimodalChatMessage>()
+    /** 会話履歴にメディアを送ったか。メディアは会話の最初の質問だけで送る。 */
+    private var mediaSent = false
     private val cancelRequested = AtomicBoolean(false)
+
+    /** 実行バックエンド。QNNは対応SoCの場合のみ選択できる。 */
+    var backend: LLMBackend = LLMBackend.CPU
 
     /** 使用するモデル。mmprojを持つGemma 4のみ。 */
     var modelType: LLMModelType = LLMModelType.GEMMA_4_E2B
 
+    /** MTPを使うか。 */
+    var mtpEnabled: Boolean = true
+
+    /** 初期化時にMTPを有効にできたか。 */
+    var isMtpActive: Boolean = false
+        private set
+
+    /** 直近の生成で計測したTTFT / Decodeの性能。 */
+    var lastPerformance: MultimodalLLMPerformance? = null
+        private set
+
     companion object {
         private const val TAG = "AiliaMultimodalLLM"
         private const val N_CTX = 8192 // Context window size
+        // QNNモデルはコンテキスト長が変換時に固定されるため、0を指定してモデル内の値を使う
+        private const val N_CTX_QNN = 0
         private const val MAX_GENERATION_STEPS = 4096
     }
 
@@ -77,16 +116,20 @@ class AiliaMultimodalLLMSample(
                 release()
             }
 
+            val useQnn = backend == LLMBackend.QNN
             val modelFileName = modelFileName()
             val projectorFileName = projectorFileName()
-            if (projectorFileName == null) {
-                listener?.onError("${modelType.displayName} does not support image or audio input")
+            if (modelFileName == null || projectorFileName == null) {
+                listener?.onError(
+                    if (useQnn) "QNN model is not available on this SoC"
+                    else "${modelType.displayName} does not support image or audio input"
+                )
                 return false
             }
 
             // Download model file
-            Log.i(TAG, "Downloading $modelFileName...")
-            val modelFile = downloadModelFile(context, modelFileName, listener)
+            Log.i(TAG, "Downloading $modelFileName for ${backend.displayName}...")
+            val modelFile = downloadModelFile(context, modelFileName!!, useQnn, listener)
             if (modelFile == null) {
                 listener?.onError("Failed to download model")
                 return false
@@ -94,13 +137,24 @@ class AiliaMultimodalLLMSample(
             modelPath = modelFile.absolutePath
 
             // Download projector (mmproj) file
-            Log.i(TAG, "Downloading $projectorFileName...")
-            val projectorFile = downloadModelFile(context, projectorFileName, listener)
+            Log.i(TAG, "Downloading $projectorFileName for ${backend.displayName}...")
+            val projectorFile = downloadModelFile(context, projectorFileName!!, useQnn, listener)
             if (projectorFile == null) {
                 listener?.onError("Failed to download projector")
                 return false
             }
             projectorPath = projectorFile.absolutePath
+
+            // Download MTP assistant file
+            val mtpFileName = mtpFileName()
+            val mtpFile = mtpFileName?.let {
+                Log.i(TAG, "Downloading $it for ${backend.displayName}...")
+                downloadModelFile(context, it, useQnn, listener)
+            }
+            if (mtpFileName != null && mtpFile == null) {
+                listener?.onError("Failed to download MTP assistant")
+                return false
+            }
 
             // Use the built-in sample media (R.raw.person / R.raw.demo) instead of downloading
             Log.i(TAG, "Preparing sample media from resources...")
@@ -118,7 +172,10 @@ class AiliaMultimodalLLMSample(
 
             // Open model file
             Log.i(TAG, "Opening model file: $modelPath")
-            llm!!.openModelFile(modelPath!!, N_CTX)
+            llm!!.openModelFile(modelPath!!, if (useQnn) N_CTX_QNN else N_CTX)
+
+            // MTP assistant must be opened before the multimodal projector and the first prompt
+            isMtpActive = mtpFile != null && LLMMtp.open(llm!!, mtpFile.absolutePath)
 
             // Open multimodal projector
             Log.i(TAG, "Opening multimodal projector: $projectorPath")
@@ -140,9 +197,9 @@ class AiliaMultimodalLLMSample(
                 return false
             }
 
-            // Add system prompt
+            // システムプロンプトは設定しない(「説明せよ」などの指示が最初の質問より優先されるため)
             conversationHistory.clear()
-            conversationHistory.add(AiliaLLMMultimodalChatMessage("system", mediaType.systemPrompt))
+            mediaSent = false
 
             isInitialized = true
             Log.i(TAG, "Multimodal LLM initialized successfully. Context size: ${llm!!.getContextSize()}")
@@ -155,15 +212,25 @@ class AiliaMultimodalLLMSample(
         }
     }
 
-    /** 使用するテキストモデルのファイル名。 */
-    fun modelFileName(): String = modelType.fileName
+    /** 現在のバックエンドで使用するテキストモデルのファイル名。QNN未対応の組み合わせではnull。 */
+    fun modelFileName(): String? = when (backend) {
+        LLMBackend.CPU -> modelType.fileName
+        LLMBackend.QNN -> QnnSupport.llmQnnFileName(modelType)
+    }
 
-    /** 使用するmmprojのファイル名。画像・音声に対応しないモデルではnull。 */
-    fun projectorFileName(): String? = modelType.mmprojFileName
+    /** 現在のバックエンドで使用するmmprojのファイル名。QNN未対応の組み合わせではnull。 */
+    fun projectorFileName(): String? = when (backend) {
+        LLMBackend.CPU -> modelType.mmprojFileName
+        LLMBackend.QNN -> QnnSupport.llmQnnMmprojFileName(modelType)
+    }
+
+    /** MTPを使う場合のAssistantのファイル名。MTP無効時や対応しない組み合わせではnull。 */
+    fun mtpFileName(): String? = if (mtpEnabled) LLMMtp.assistantFileName(modelType, backend) else null
 
     private fun downloadModelFile(
         context: Context,
         fileName: String,
+        useQnn: Boolean,
         listener: MultimodalLLMListener?,
     ): File? {
         val downloadListener = object : ModelDownloader.DownloadListener {
@@ -179,16 +246,22 @@ class AiliaMultimodalLLMSample(
                 Log.e(TAG, "Download error: $error")
             }
         }
-        return ModelDownloader.downloadLLMModel(context, fileName, downloadListener)
+        return if (useQnn) {
+            ModelDownloader.downloadQnnLLMModel(context, fileName, downloadListener)
+        } else {
+            ModelDownloader.downloadLLMModel(context, fileName, downloadListener)
+        }
     }
 
     /**
      * Checks if all required files are already downloaded.
      */
     fun areFilesDownloaded(context: Context): Boolean {
+        val modelFileName = modelFileName() ?: return false
         val projectorFileName = projectorFileName() ?: return false
-        return ModelDownloader.isLLMModelDownloaded(context, modelFileName()) &&
-            ModelDownloader.isLLMModelDownloaded(context, projectorFileName)
+        return listOfNotNull(modelFileName, projectorFileName, mtpFileName()).all {
+            LLMMtp.isDownloaded(context, it, backend)
+        }
     }
 
     /**
@@ -221,36 +294,57 @@ class AiliaMultimodalLLMSample(
         val historySizeBeforeRequest = conversationHistory.size
         return try {
             cancelRequested.set(false)
+            lastPerformance = null
             val startTime = System.nanoTime()
 
-            // Create media data for the image or audio
-            Log.i(TAG, "chatWithMedia: creating media data for: $mediaToUse")
-            val mediaData = AiliaLLMMediaData(mediaType.mediaType, mediaToUse)
-
-            // Create user message with media placeholder
-            // The <__media__> placeholder will be replaced with the image or audio
-            val messageContent = "<__media__>\n$userInput"
-            val userMessage = AiliaLLMMultimodalChatMessage("user", messageContent, mediaData)
+            // メディアを毎ターン履歴に積むとエンコード時間とコンテキストが増えるため、
+            // 最初の質問だけメディアを送り、以降はテキストだけを送る。
+            // 入力を切り替えた場合は呼び出し側でclearHistory()して送り直す
+            val attachMedia = !mediaSent
+            val userMessage = if (attachMedia) {
+                Log.i(TAG, "chatWithMedia: attaching ${mediaType.mediaType}: $mediaToUse")
+                val mediaData = AiliaLLMMediaData(mediaType.mediaType, mediaToUse)
+                // The <__media__> placeholder will be replaced with the image or audio
+                val content = if (mediaType.mediaBeforeText) {
+                    "<__media__>\n$userInput"
+                } else {
+                    "$userInput\n<__media__>"
+                }
+                AiliaLLMMultimodalChatMessage("user", content, mediaData)
+            } else {
+                Log.i(TAG, "chatWithMedia: ${mediaType.mediaType} already sent, sending text only")
+                AiliaLLMMultimodalChatMessage("user", userInput)
+            }
             conversationHistory.add(userMessage)
 
             // Set the multimodal prompt (media encoding takes a while on mobile CPUs)
             Log.i(TAG, "chatWithMedia: calling setPrompt with ${conversationHistory.size} messages...")
-            listener?.onStatus("Processing ${mediaType.mediaType}...")
+            if (attachMedia) listener?.onStatus("Processing ${mediaType.mediaType}...")
             val promptStart = System.nanoTime()
             llm!!.setPrompt(conversationHistory.toTypedArray())
             val promptTime = (System.nanoTime() - promptStart) / 1000000
             Log.i(TAG, "chatWithMedia: setPrompt completed in ${promptTime}ms")
-            listener?.onStatus("Generating... (${mediaType.mediaType} processed in ${promptTime / 1000}s)")
+            listener?.onStatus(
+                if (attachMedia) "Generating... (${mediaType.mediaType} processed in ${promptTime / 1000}s)"
+                else "Generating..."
+            )
 
             // Generate response token by token
             val responseBuilder = StringBuilder()
             var done = false
             var tokenCount = 0
             var generationSteps = 0
+            var ttftNanos = 0L
+            var decodeStartNanos = 0L
 
             Log.i(TAG, "chatWithMedia: starting generate loop...")
             while (!done && !cancelRequested.get() && generationSteps < MAX_GENERATION_STEPS) {
                 done = llm!!.generate()
+                if (generationSteps == 0) {
+                    // Prefillは最初のgenerate()で実行されるため、ここまでをTTFTとする
+                    decodeStartNanos = System.nanoTime()
+                    ttftNanos = decodeStartNanos - promptStart
+                }
                 generationSteps++
                 val token = llm!!.getDeltaText()
                 if (token.isNotEmpty()) {
@@ -272,6 +366,7 @@ class AiliaMultimodalLLMSample(
                 listener?.onError("Generation stopped after $MAX_GENERATION_STEPS steps")
                 return -1
             }
+            val decodeNanos = if (decodeStartNanos > 0) System.nanoTime() - decodeStartNanos else 0L
             Log.i(TAG, "chatWithMedia: generate loop done, total tokens=$tokenCount")
 
             val fullResponse = responseBuilder.toString()
@@ -279,12 +374,23 @@ class AiliaMultimodalLLMSample(
 
             // Add assistant response to conversation history
             conversationHistory.add(AiliaLLMMultimodalChatMessage("assistant", fullResponse))
+            // 失敗時はユーザー発言ごと履歴から外すため、成功したときだけ送信済みとして記録する
+            mediaSent = true
 
             val endTime = System.nanoTime()
             val processingTime = (endTime - startTime) / 1000000
 
+            val performance = MultimodalLLMPerformance(
+                ttftMs = ttftNanos / 1000000,
+                // 最初のトークンはTTFTに含まれるため、Decodeのトークン数から除く
+                generatedTokens = (generationSteps - 1).coerceAtLeast(0),
+                decodeMs = decodeNanos / 1000000,
+            )
+            lastPerformance = performance
+
             listener?.onComplete(fullResponse)
-            Log.i(TAG, "Multimodal chat completed in ${processingTime}ms. Response: $fullResponse")
+            Log.i(TAG, "Multimodal chat completed in ${processingTime}ms. ${performance.summary()}")
+            Log.i(TAG, "Response: $fullResponse")
 
             processingTime
         } catch (e: Exception) {
@@ -319,7 +425,7 @@ class AiliaMultimodalLLMSample(
      */
     fun clearHistory() {
         conversationHistory.clear()
-        conversationHistory.add(AiliaLLMMultimodalChatMessage("system", mediaType.systemPrompt))
+        mediaSent = false
         Log.i(TAG, "Conversation history cleared")
     }
 
@@ -342,10 +448,12 @@ class AiliaMultimodalLLMSample(
         } finally {
             llm = null
             isInitialized = false
+            isMtpActive = false
             modelPath = null
             projectorPath = null
             sampleMediaPath = null
             conversationHistory.clear()
+            mediaSent = false
             Log.i(TAG, "Multimodal LLM released")
         }
     }
