@@ -128,6 +128,7 @@ class MainActivity : AppCompatActivity() {
     // 議事録風トランスクリプト([mm:ss - mm:ss] text の蓄積)
     private val speechTranscript = mutableListOf<String>()
     private var speechIntermediateText: String? = null
+    private var speechMicGeneration = 0L
 
     private val modelDirectory by lazy { ModelDownloader.modelDirectory(this) }
     private val poseEstimatorSample by lazy { AiliaPoseEstimatorSample(modelDirectory) }
@@ -143,6 +144,8 @@ class MainActivity : AppCompatActivity() {
     private val multimodalLLMSample = AiliaMultimodalLLMSample(MultimodalMediaType.IMAGE)
     private val almSample = AiliaMultimodalLLMSample(MultimodalMediaType.AUDIO)
     private val toolUseSample = AiliaToolUseSample()
+    private var voiceAgentController: VoiceAgentController? = null
+    private lateinit var voiceAgentSetup: View
     private val almRecorder = WavRecorder()
     private val onnxObjectDetectionSample by lazy { AiliaOnnxObjectDetectionSample(modelDirectory) }
     private val onnxClassificationSample by lazy { AiliaOnnxClassificationSample(modelDirectory) }
@@ -214,6 +217,13 @@ class MainActivity : AppCompatActivity() {
      * QNN版のあるモデルに戻したときはこの選択に戻す。
      */
     private var preferredLLMBackend: LLMBackend = LLMBackend.QNN
+    /** Speech2Textで変換済みQNNモデル(.qnn)をNPUで実行するか。setupSpeechEnvSpinnerで決まる。 */
+    private var selectedSpeechUseQnn = false
+    /**
+     * ユーザーがSpeech2TextでQNNを選んでいるか。既定はQNN。
+     * QNN版のないモデルでは一時的にCPUで実行し、QNN版のあるモデルに戻したときはこの選択に戻す。
+     */
+    private var preferredSpeechUseQnn = true
     /** 生成中かどうか。生成中はSendボタンをStopボタンとして使う。 */
     private var llmGenerating = false
 
@@ -222,7 +232,6 @@ class MainActivity : AppCompatActivity() {
 
     /** ALMで推論に使う音声ファイル。Wav選択時はサンプル、Mic選択時は録音結果。 */
     private var almAudioPath: String? = null
-    private var isUpdatingSpeechOptionChecks = false
 
     private data class SpeakerReference(
         val name: String,
@@ -285,6 +294,7 @@ class MainActivity : AppCompatActivity() {
         MULTIMODAL_LLM,
         ALM,
         TOOL_USE,
+        VOICE_AGENT,
         SPEAKER_VERIFICATION,
         VOICE_FILTER,
         SETTINGS,
@@ -297,6 +307,8 @@ class MainActivity : AppCompatActivity() {
 
         private const val REQUEST_CODE_CAMERA_PERMISSION = 10
         private const val REQUEST_CODE_AUDIO_PERMISSION = 11
+        private const val REQUEST_CODE_VOICE_AGENT_PERMISSION = 12
+        private const val REQUEST_CODE_VOICE_AGENT_CAMERA_PERMISSION = 13
 
         /** ALMの既定プロンプト。入力音声の内容を説明させる。 */
         private const val ALM_DEFAULT_PROMPT = "入力された音声の内容を説明してください"
@@ -351,6 +363,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun initializeViews() {
+        voiceAgentSetup = findViewById(R.id.voiceAgentSetup)
         imageView = findViewById(R.id.imageView)
         cameraPreviewView = findViewById(R.id.cameraPreviewView)
         modeRadioGroup = findViewById(R.id.modeRadioGroup)
@@ -472,6 +485,7 @@ class MainActivity : AppCompatActivity() {
             "VLM",
             "ALM",
             "ToolUse",
+            "Voice Agent",
             "SpeakerVerification",
             "VoiceFilter",
             "Settings",
@@ -754,7 +768,7 @@ class MainActivity : AppCompatActivity() {
             AlgorithmType.SPEECH_TO_TEXT -> {
                 // Speech2Textのバックエンド選択はRun/Recordボタンの右側に表示する
                 envSpinner.visibility = View.GONE
-                setupOnnxEnvSpinner(useBlas = true, target = speechEnvSpinner)
+                setupSpeechEnvSpinner()
             }
 
             AlgorithmType.TEXT_TO_SPEECH -> {
@@ -861,7 +875,10 @@ class MainActivity : AppCompatActivity() {
             }
             AlgorithmType.SPEECH_TO_TEXT -> {
                 selectedIndex = SpeechModelType.values().indexOf(selectedSpeechModelType)
-                SpeechModelType.values().map { it.displayName }.toTypedArray()
+                // この端末向けのQNNモデル(.qnn)があるモデルはNPUで実行できることを併記する
+                SpeechModelType.values().map {
+                    if (QnnSupport.speechQnnFileName(it) != null) "${it.displayName} (QNN)" else it.displayName
+                }.toTypedArray()
             }
             AlgorithmType.TEXT_TO_SPEECH -> {
                 selectedIndex = VoiceModelType.values().indexOf(selectedVoiceModelType)
@@ -883,6 +900,7 @@ class MainActivity : AppCompatActivity() {
                 selectedRuntime = "ONNX"
                 arrayOf("VoiceFilter + dynamic d-vector embedder + Silero VAD v6")
             }
+            AlgorithmType.VOICE_AGENT -> arrayOf("Voice Agent")
             AlgorithmType.SETTINGS -> arrayOf("Settings")
         }
 
@@ -949,6 +967,69 @@ class MainActivity : AppCompatActivity() {
             }
             override fun onNothingSelected(parent: AdapterView<*>?) {}
         }
+    }
+
+    /**
+     * Speech2Textの実行バックエンド選択スピナーを更新する。
+     * ailia SDKの環境(CPU/BLASなど)に加え、ailia SpeechのAPIで取得したSoC名に対応する
+     * 変換済みQNNモデル(.qnn)がある場合は "QNN <SoC名>" を選択肢に追加する。
+     * ailia SDKのQNN環境はailia Speechでは使わないため選択肢から外す。
+     */
+    private fun setupSpeechEnvSpinner() {
+        val environments = try {
+            if (ailiaEnvironments == null) {
+                Ailia.SetTemporaryCachePath(cacheDir.absolutePath)
+                ailiaEnvironments = AiliaModel.getEnvironments().filter {
+                    isSelectableAiliaEnvironment(it.name)
+                }
+            }
+            ailiaEnvironments!!.filter { !QnnSupport.isQnnEnvironmentName(it.name) }
+        } catch (e: Exception) {
+            Log.e("AILIA_Main", "Failed to get ailia environments: ${e.message}")
+            emptyList()
+        }
+        val qnnAvailable = QnnSupport.speechQnnFileName(selectedSpeechModelType) != null
+        val items = environments.map { "${it.name} (id:${it.id})" }.toMutableList()
+        if (qnnAvailable) items.add("QNN ${QnnSupport.socName}")
+        val qnnPosition = if (qnnAvailable) items.size - 1 else -1
+        // QNN版のないモデルではBLAS(なければCPU)で実行する。VADと話者分離もこの環境で動かす
+        val cpuIndex = if (environments.isEmpty()) -1 else preferredBlasThenCpuEnvironmentIndex(environments.map { it.type })
+        val currentIndex = environments.indexOfFirst { it.id == selectedEnvId }
+        val cpuSelectionIndex = if (currentIndex >= 0 && !selectedSpeechUseQnn) currentIndex else cpuIndex
+
+        selectedSpeechUseQnn = qnnAvailable && preferredSpeechUseQnn
+        val selection = if (selectedSpeechUseQnn) qnnPosition else cpuSelectionIndex
+        if (cpuIndex >= 0) {
+            selectedEnvId = environments[if (selectedSpeechUseQnn) cpuIndex else cpuSelectionIndex].id
+        }
+
+        val adapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, items)
+        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+        speechEnvSpinner.onItemSelectedListener = null
+        speechEnvSpinner.adapter = adapter
+        if (selection >= 0) speechEnvSpinner.setSelection(selection, false)
+        speechEnvSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
+                val newUseQnn = position == qnnPosition
+                val newEnvId = if (newUseQnn) {
+                    if (cpuIndex >= 0) environments[cpuIndex].id else selectedEnvId
+                } else {
+                    environments[position].id
+                }
+                if (newUseQnn != selectedSpeechUseQnn || newEnvId != selectedEnvId) {
+                    selectedSpeechUseQnn = newUseQnn
+                    preferredSpeechUseQnn = newUseQnn
+                    selectedEnvId = newEnvId
+                    // バックエンド切り替え時は解放のみ(ダウンロードはRun/Record押下時)
+                    stopMicRecording(finalize = false)
+                    releaseSpeechModel()
+                    isInitialized = false
+                    isDownloadingModel.set(false)
+                }
+            }
+            override fun onNothingSelected(parent: AdapterView<*>?) {}
+        }
+        speechEnvSpinner.visibility = if (items.isEmpty()) View.GONE else View.VISIBLE
     }
 
     /** Settingsに表示するダウンロード済みQNNモデルの一覧を更新する。 */
@@ -1152,6 +1233,8 @@ class MainActivity : AppCompatActivity() {
                 val newType = SpeechModelType.values()[position]
                 if (newType != selectedSpeechModelType) {
                     selectedSpeechModelType = newType
+                    // 選んだモデルのQNN対応状況で選択肢を決める
+                    setupSpeechEnvSpinner()
                     stopMicRecording(finalize = false)
                     // モデルダウンロードはRun/Record押下時まで遅延する
                     releaseSpeechModel()
@@ -1341,12 +1424,13 @@ class MainActivity : AppCompatActivity() {
             }
 
             // Settings has no model to run.
-            AlgorithmType.SETTINGS -> 0
+            AlgorithmType.SETTINGS, AlgorithmType.VOICE_AGENT -> 0
         }
     }
 
     /** updateUIVisibilityで管理するView。可視性の初期値はすべてGONEにする。 */
     private fun managedAlgorithmViews(): List<View> = listOf(
+        voiceAgentSetup,
         modeRadioGroup,
         imageView,
         cameraPreviewView,
@@ -1545,6 +1629,7 @@ class MainActivity : AppCompatActivity() {
             AlgorithmType.MULTIMODAL_LLM to multimodalViews,
             AlgorithmType.ALM to almViews,
             AlgorithmType.TOOL_USE to llmViews + setOf<View>(toolUseThinkingSwitch),
+            AlgorithmType.VOICE_AGENT to setOf(voiceAgentSetup),
             AlgorithmType.SPEAKER_VERIFICATION to speakerVerificationViews,
             AlgorithmType.VOICE_FILTER to voiceFilterViews,
             AlgorithmType.SETTINGS to setOf<View>(
@@ -1579,9 +1664,10 @@ class MainActivity : AppCompatActivity() {
             currentAlgorithm == AlgorithmType.ALM ||
             currentAlgorithm == AlgorithmType.TOOL_USE
         val isSettings = currentAlgorithm == AlgorithmType.SETTINGS
-        processingTimeTextView.visibility = if (isChatAlgorithm || isSettings) View.GONE else View.VISIBLE
+        val isVoiceAgent = currentAlgorithm == AlgorithmType.VOICE_AGENT
+        processingTimeTextView.visibility = if (isChatAlgorithm || isSettings || isVoiceAgent) View.GONE else View.VISIBLE
         // Settingsは選ぶモデルがないため、モデル選択を隠す
-        modelSpinner.visibility = if (isSettings) View.GONE else View.VISIBLE
+        modelSpinner.visibility = if (isSettings || isVoiceAgent) View.GONE else View.VISIBLE
 
         // 表示切り替え時に必要なアルゴリズム固有の初期状態を設定する。
         when (currentAlgorithm) {
@@ -1680,6 +1766,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun executeAlgorithmSwitch(newAlgorithm: AlgorithmType) {
+        voiceAgentController?.stop()
         // LLM系の画面どうしの切り替えでは、共有しているモデルを閉じずに使い回す
         releaseCurrentAlgorithm(keepSharedLLM = newAlgorithm in LLM_ALGORITHMS)
         currentAlgorithm = newAlgorithm
@@ -1741,6 +1828,26 @@ class MainActivity : AppCompatActivity() {
             }
             AlgorithmType.TOOL_USE -> {
                 setupToolUseSendButton()
+            }
+            AlgorithmType.VOICE_AGENT -> {
+                stopCamera()
+                if (voiceAgentController == null) {
+                    voiceAgentController = VoiceAgentController(this, cameraExecutor,
+                        requestMicrophone = {
+                            ActivityCompat.requestPermissions(this,
+                                arrayOf(Manifest.permission.RECORD_AUDIO), REQUEST_CODE_VOICE_AGENT_PERMISSION)
+                        },
+                        requestCamera = {
+                            ActivityCompat.requestPermissions(this,
+                                arrayOf(Manifest.permission.CAMERA), REQUEST_CODE_VOICE_AGENT_CAMERA_PERMISSION)
+                        },
+                        showSession = { active ->
+                            rootScrollView.visibility = if (active) View.GONE else View.VISIBLE
+                            findViewById<View>(R.id.voiceAgentSession).visibility = if (active) View.VISIBLE else View.GONE
+                            if (active || currentAlgorithm == AlgorithmType.VOICE_AGENT) processingTimeTextView.visibility = View.GONE
+                            ViewCompat.requestApplyInsets(findViewById(R.id.rootLayout))
+                        })
+                }
             }
             AlgorithmType.SPEAKER_VERIFICATION -> {
                 setupSpeakerVerificationControls()
@@ -2035,7 +2142,7 @@ class MainActivity : AppCompatActivity() {
                     return
                 }
 
-                AlgorithmType.SETTINGS -> {
+                AlgorithmType.SETTINGS, AlgorithmType.VOICE_AGENT -> {
                     // 設定画面は読み込むモデルがない
                     return
                 }
@@ -2277,7 +2384,7 @@ class MainActivity : AppCompatActivity() {
         speechModeRadioGroup.isEnabled = enabled
         speechLanguageSpinner.isEnabled = enabled
         diarizationCheckBox.isEnabled = enabled
-        liveModeCheckBox.isEnabled = enabled && !diarizationCheckBox.isChecked
+        liveModeCheckBox.isEnabled = enabled
         visionRunButton.isEnabled = enabled
         speakerProfileSpinner.isEnabled = enabled
         speakerInputModeRadioGroup.isEnabled = enabled
@@ -3229,33 +3336,14 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun setupDiarizationCheckBox() {
-        speechSample.diarizationEnabled = diarizationCheckBox.isChecked
-        updateLiveModeAvailability(diarizationCheckBox.isChecked)
-        diarizationCheckBox.setOnCheckedChangeListener { _, isChecked ->
-            speechSample.diarizationEnabled = isChecked
-            updateLiveModeAvailability(isChecked)
+        diarizationCheckBox.setOnCheckedChangeListener { _, _ ->
             resetSpeechForOptionChange()
         }
     }
 
     private fun setupLiveModeCheckBox() {
         liveModeCheckBox.setOnCheckedChangeListener { _, _ ->
-            if (!isUpdatingSpeechOptionChecks) {
-                resetSpeechForOptionChange()
-            }
-        }
-    }
-
-    /** Speaker Diarizationと併用できないLive ModeをOFFにして選択不可にする。 */
-    private fun updateLiveModeAvailability(diarizationEnabled: Boolean) {
-        isUpdatingSpeechOptionChecks = true
-        try {
-            if (diarizationEnabled) {
-                liveModeCheckBox.isChecked = false
-            }
-            liveModeCheckBox.isEnabled = !diarizationEnabled
-        } finally {
-            isUpdatingSpeechOptionChecks = false
+            resetSpeechForOptionChange()
         }
     }
 
@@ -3272,7 +3360,6 @@ class MainActivity : AppCompatActivity() {
     /** 議事録風トランスクリプトに行を追記して表示を更新する(UIスレッドで呼ぶこと) */
     private fun appendTranscriptLines(lines: List<String>) {
         if (lines.isEmpty()) return
-        speechIntermediateText = null
         speechTranscript.addAll(lines)
         updateTranscriptDisplay()
     }
@@ -4328,14 +4415,19 @@ class MainActivity : AppCompatActivity() {
         val isMicMode = speechModeRadioGroup.checkedRadioButtonId == R.id.micRadioButton
         // LIVEフラグはLive Modeチェックボックスで有効化(マイクモード時のみ)
         val liveMode = isMicMode && liveModeCheckBox.isChecked
+        val diarization = diarizationCheckBox.isChecked
         val modelType = selectedSpeechModelType
         val envId = selectedEnvId
+        val useQnn = selectedSpeechUseQnn
         val language = if (isMicMode) selectedSpeechLanguage else "auto"
         processingTimeTextView.text = "Processing Time: -- ms"
         speechRunButton.isEnabled = false
         micRecordButton.isEnabled = false
         speechExecutor.execute {
             try {
+                // QNN選択時はダウンロードするファイルも.qnnに変わるため先に設定する
+                speechSample.useQnn = useQnn
+                speechSample.diarizationEnabled = diarization
                 val downloaded = speechSample.downloadModel(modelType, object : ModelDownloadListener {
                     override fun onProgress(fileName: String, bytesDownloaded: Long, totalBytes: Long) {
                         Log.d("AILIA_Main", "Speech: downloading $fileName")
@@ -4403,9 +4495,12 @@ class MainActivity : AppCompatActivity() {
                     try {
                         val audio: AudioUtil.WavFileData = AudioUtil().loadRawAudio(this.resources.openRawResource(R.raw.demo))
                         // 処理時間はtranscribeTimeListenerがtranscribeごとに更新する
-                        val lines = speechSample.process(audio.audioData, audio.channels, audio.sampleRate)
+                        val lines = speechSample.process(audio.audioData, audio.channels, audio.sampleRate) { confirmed ->
+                            runOnUiThreadIfActive {
+                                appendTranscriptLines(confirmed)
+                            }
+                        }
                         runOnUiThreadIfActive {
-                            appendTranscriptLines(lines)
                             classificationResultTextView.text =
                                 if (lines.isEmpty()) "Speech Result: (no speech detected)" else "Speech Result:"
                         }
@@ -4452,16 +4547,19 @@ class MainActivity : AppCompatActivity() {
         }
         pendingAudioAction = null
 
+        val generation = ++speechMicGeneration
         val started = speechSample.startMicRecording(object : AiliaSpeechSample.MicRecordingListener {
             override fun onWaveform(samples: FloatArray, sampleRate: Int) {
                 val blocks = WaveformView.peakBlocks(samples, samples.size, sampleRate)
                 runOnUiThreadIfActive {
+                    if (generation != speechMicGeneration) return@runOnUiThreadIfActive
                     waveformView.push(blocks)
                 }
             }
 
             override fun onIntermediateResult(text: String) {
                 runOnUiThreadIfActive {
+                    if (generation != speechMicGeneration) return@runOnUiThreadIfActive
                     showIntermediateTranscript(text)
                     classificationResultTextView.text = "Recording..."
                 }
@@ -4473,6 +4571,7 @@ class MainActivity : AppCompatActivity() {
                 processingTimeMs: Long,
             ) {
                 runOnUiThreadIfActive {
+                    if (generation != speechMicGeneration) return@runOnUiThreadIfActive
                     appendTranscriptLines(lines)
                     // 処理時間はtranscribeTimeListenerがtranscribeごとに更新する
                     if (isFinal) {
@@ -4490,6 +4589,7 @@ class MainActivity : AppCompatActivity() {
 
             override fun onError(error: String) {
                 runOnUiThreadIfActive {
+                    if (generation != speechMicGeneration) return@runOnUiThreadIfActive
                     Log.e("AILIA_Main", "Microphone recording error: $error")
                     classificationResultTextView.text = "Speech Result: Error - $error"
                     if (!speechSample.isMicRecording) {
@@ -4517,8 +4617,11 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun stopMicRecording(finalize: Boolean = true) {
-        if (speechSample.isMicRecording) {
-            speechSample.stopMicRecording(finalize)
+        val wasRecording = speechSample.isMicRecording
+        if (!finalize) speechMicGeneration++
+        // A stopped recorder may still be decoding/finalizing. Cancel that work too.
+        speechSample.stopMicRecording(finalize)
+        if (wasRecording || !finalize) {
             recTimerHandler.removeCallbacks(recTimerRunnable)
             runOnUiThreadIfActive {
                 micRecordButton.text = "Record"
@@ -4583,7 +4686,8 @@ class MainActivity : AppCompatActivity() {
         }
 
         // ALM / ToolUseはSend押下時にダウンロード+初期化する
-        if (currentAlgorithm == AlgorithmType.ALM || currentAlgorithm == AlgorithmType.TOOL_USE) {
+        if (currentAlgorithm == AlgorithmType.ALM || currentAlgorithm == AlgorithmType.TOOL_USE ||
+            currentAlgorithm == AlgorithmType.VOICE_AGENT) {
             return
         }
 
@@ -4844,6 +4948,8 @@ class MainActivity : AppCompatActivity() {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         val granted = grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED
         when (requestCode) {
+            REQUEST_CODE_VOICE_AGENT_PERMISSION -> voiceAgentController?.onMicrophonePermission(granted)
+            REQUEST_CODE_VOICE_AGENT_CAMERA_PERMISSION -> voiceAgentController?.onCameraPermission(granted)
             REQUEST_CODE_CAMERA_PERMISSION -> if (granted) {
                 modeRadioGroup.check(R.id.cameraRadioButton)
             } else {
@@ -4872,7 +4978,13 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    override fun onStop() {
+        voiceAgentController?.stop()
+        super.onStop()
+    }
+
     override fun onDestroy() {
+        voiceAgentController?.close()
         activityDestroyed.set(true)
         lastSpeakerMicAudio = null
         lastVoiceFilterMicAudio = null

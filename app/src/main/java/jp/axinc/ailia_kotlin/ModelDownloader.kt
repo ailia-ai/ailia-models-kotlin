@@ -42,6 +42,9 @@ object ModelDownloader {
     /** ailia LLM 1.5.1向けのQNNモデルのファイル名(精度を含む)。 */
     private val QNN_LLM_V151_NAME = Regex("-(fp16|int16)-")
 
+    /** ailia Speech 1.6.0向けのQNNモデル(.qnn)の配置先。 */
+    private const val QNN_SPEECH_PATH = "whisper/qnn/v1.6.0"
+
     const val GEMMA_2_MODEL_URL = "$BASE_URL/gemma/gemma-2-2b-it-Q4_K_M.gguf"
     const val SAMPLE_IMAGE_URL = "$BASE_URL/misc/sample_image.jpg"
 
@@ -85,6 +88,10 @@ object ModelDownloader {
         val path = if (QNN_LLM_V151_NAME.containsMatchIn(fileName)) QNN_LLM_MTP_PATH else QNN_LLM_PATH
         return ModelFileSpec("$BASE_URL/$path/$fileName", fileName)
     }
+
+    /** ailia Speech向けのSoC固有のQNNモデル(.qnn)の取得元。 */
+    fun qnnSpeechModelSpec(fileName: String): ModelFileSpec =
+        ModelFileSpec("$BASE_URL/$QNN_SPEECH_PATH/$fileName", fileName)
 
     /** listenerへ中継しつつ、ダウンロード失敗の理由を[onError]でも受け取れるようにする。 */
     fun recordingErrors(listener: DownloadListener?, onError: (String) -> Unit): DownloadListener =

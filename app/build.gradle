@@ -11,8 +11,8 @@ android {
         applicationId "ai.ailia.ailia_kotlin_qnn"
         minSdk 21
         targetSdk 35
-        versionCode 4
-        versionName "1.3"
+        versionCode 5
+        versionName "1.4"
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -47,6 +47,7 @@ dependencies {
     implementation "androidx.camera:camera-camera2:1.4.1"
     implementation "androidx.camera:camera-lifecycle:1.4.1"
     implementation "androidx.camera:camera-view:1.4.1"
+    implementation 'androidx.exifinterface:exifinterface:1.3.2'
     implementation project(':ailia-sdk-jni')
     implementation project(':ailia-tokenizer-jni')
     implementation project(':ailia-tflite-jni')

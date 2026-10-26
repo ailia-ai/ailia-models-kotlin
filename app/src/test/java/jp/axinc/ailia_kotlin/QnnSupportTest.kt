@@ -102,4 +102,28 @@ class QnnSupportTest {
         assertNull(QnnSupport.llmQnnFileName("sm8650", LLMModelType.GEMMA_4_E2B))
         assertNull(QnnSupport.llmQnnFileName(null, LLMModelType.GEMMA_4_E2B))
     }
+
+    @Test
+    fun `Whisper medium and Large V3 Turbo run on QNN`() {
+        assertEquals(
+            "whisper-large-v3-turbo-sm7635-int16.qnn",
+            QnnSupport.speechQnnFileName("sm7635", SpeechModelType.WHISPER_LARGE_V3_TURBO),
+        )
+        assertEquals(
+            "whisper-medium-sm7635-int16.qnn",
+            QnnSupport.speechQnnFileName("sm7635", SpeechModelType.WHISPER_MEDIUM),
+        )
+        assertNull(QnnSupport.speechQnnFileName("sm7635", SpeechModelType.WHISPER_SMALL))
+        assertEquals(
+            "whisper-medium-sm8475-int16.qnn",
+            QnnSupport.speechQnnFileName("sm8475", SpeechModelType.WHISPER_MEDIUM),
+        )
+        assertEquals(
+            "whisper-large-v3-turbo-qcs6490-int16.qnn",
+            QnnSupport.speechQnnFileName("qcs6490", SpeechModelType.WHISPER_LARGE_V3_TURBO),
+        )
+        assertNull(QnnSupport.speechQnnFileName("sm8650", SpeechModelType.WHISPER_LARGE_V3_TURBO))
+        assertNull(QnnSupport.speechQnnFileName("sm7635", SpeechModelType.SENSEVOICE_SMALL))
+        assertNull(QnnSupport.speechQnnFileName(null, SpeechModelType.WHISPER_LARGE_V3_TURBO))
+    }
 }

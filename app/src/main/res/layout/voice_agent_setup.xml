@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent" android:layout_height="wrap_content"
+    android:orientation="vertical" android:padding="24dp">
+    <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:text="@string/voice_agent_title" android:textSize="28sp" android:textStyle="bold" />
+    <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:layout_marginTop="12dp" android:text="@string/voice_agent_intro" android:textSize="15sp" />
+    <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:layout_marginTop="16dp" android:text="@string/voice_agent_tools" android:textStyle="bold" />
+    <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:layout_marginTop="4dp" android:text="@string/voice_agent_tools_description" android:textSize="14sp" />
+    <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:layout_marginTop="20dp" android:text="@string/voice_agent_camera"
+        android:labelFor="@+id/voiceAgentCameraFacing" android:textStyle="bold" />
+    <Spinner android:id="@id/voiceAgentCameraFacing" android:layout_width="match_parent"
+        android:layout_height="56dp" android:spinnerMode="dialog" android:prompt="@string/voice_agent_camera" />
+    <RadioGroup android:id="@+id/voiceAgentInputMode" android:layout_width="match_parent"
+        android:layout_height="wrap_content" android:layout_marginTop="20dp" android:orientation="vertical"
+        android:checkedButton="@+id/voiceAgentMicInput">
+        <RadioButton android:id="@id/voiceAgentMicInput" android:layout_width="match_parent"
+            android:layout_height="48dp" android:text="@string/voice_agent_input_mic" />
+        <RadioButton android:id="@+id/voiceAgentTestInput" android:layout_width="match_parent"
+            android:layout_height="48dp" android:text="@string/voice_agent_input_test" />
+    </RadioGroup>
+    <LinearLayout android:id="@+id/voiceAgentQueryPanel" android:layout_width="match_parent"
+        android:layout_height="wrap_content" android:orientation="vertical" android:visibility="gone">
+        <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:text="@string/voice_agent_test_note" android:textSize="13sp" />
+        <EditText android:id="@+id/voiceAgentTestQueries" android:layout_width="match_parent"
+            android:layout_height="wrap_content" android:minHeight="96dp" android:gravity="top"
+            android:importantForAutofill="no" android:inputType="textMultiLine" android:maxLength="1000"
+            android:minLines="2" android:maxLines="5" android:text="@string/voice_agent_default_queries"
+            android:hint="@string/voice_agent_query_hint" />
+    </LinearLayout>
+    <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:layout_marginTop="28dp" android:text="@string/voice_agent_speech_model" android:labelFor="@+id/voiceAgentSpeechModel" android:textStyle="bold" />
+    <Spinner android:id="@id/voiceAgentSpeechModel" android:layout_width="match_parent"
+        android:layout_height="56dp" android:spinnerMode="dialog" android:prompt="@string/voice_agent_speech_model" />
+    <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:text="@string/voice_agent_speech_backend" android:labelFor="@+id/voiceAgentSpeechBackend" />
+    <Spinner android:id="@id/voiceAgentSpeechBackend" android:layout_width="match_parent"
+        android:layout_height="56dp" android:spinnerMode="dialog" android:prompt="@string/voice_agent_speech_backend" />
+    <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:layout_marginTop="20dp" android:text="@string/voice_agent_llm_model" android:labelFor="@+id/voiceAgentLlmModel" android:textStyle="bold" />
+    <Spinner android:id="@id/voiceAgentLlmModel" android:layout_width="match_parent"
+        android:layout_height="56dp" android:spinnerMode="dialog" android:prompt="@string/voice_agent_llm_model" />
+    <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:text="@string/voice_agent_llm_backend" android:labelFor="@+id/voiceAgentLlmBackend" />
+    <Spinner android:id="@id/voiceAgentLlmBackend" android:layout_width="match_parent"
+        android:layout_height="56dp" android:spinnerMode="dialog" android:prompt="@string/voice_agent_llm_backend" />
+    <androidx.appcompat.widget.SwitchCompat android:id="@+id/voiceAgentMtp"
+        android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="48dp"
+        android:checked="true" android:text="@string/voice_agent_mtp" />
+    <TextView android:id="@+id/voiceAgentMtpNote" android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:text="@string/voice_agent_mtp_note" android:textSize="13sp" />
+    <androidx.appcompat.widget.SwitchCompat android:id="@+id/voiceAgentSpeechOutput"
+        android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="48dp"
+        android:layout_marginTop="20dp" android:checked="true" android:text="@string/voice_agent_speech_output" />
+    <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:text="@string/voice_agent_speech_output_note" android:textSize="13sp" />
+    <TextView android:id="@+id/voiceAgentVoiceModelLabel" android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:layout_marginTop="20dp" android:text="@string/voice_agent_voice_model" android:labelFor="@+id/voiceAgentVoiceBackend" android:textStyle="bold" />
+    <Spinner android:id="@id/voiceAgentVoiceBackend" android:layout_width="match_parent"
+        android:layout_height="56dp" android:spinnerMode="dialog" android:prompt="@string/voice_agent_voice_backend" />
+    <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:layout_marginTop="16dp" android:text="@string/voice_agent_download_note" android:textSize="13sp" />
+    <TextView android:id="@+id/voiceAgentError" android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:layout_marginTop="12dp" android:textColor="#C94242" android:accessibilityLiveRegion="polite" android:visibility="gone" />
+    <Button android:id="@+id/voiceAgentStart" android:layout_width="match_parent" android:layout_height="56dp"
+        android:layout_marginTop="24dp" android:text="@string/voice_agent_start" />
+</LinearLayout>

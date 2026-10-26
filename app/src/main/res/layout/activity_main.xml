@@ -38,6 +38,10 @@
 
     <!-- モデル選択(モデル名表示を兼ねる)。S2T/TTS/LLMのモデルや
          YOLOX等のTFLite/ONNX選択もここに統合する -->
+    <include android:id="@+id/voiceAgentSetup" layout="@layout/voice_agent_setup"
+        android:layout_width="0dp" android:layout_height="wrap_content" android:visibility="gone"
+        app:layout_constraintTop_toBottomOf="@id/algorithmSpinner"
+        app:layout_constraintStart_toStartOf="parent" app:layout_constraintEnd_toEndOf="parent" />
     <Spinner
         android:id="@+id/modelSpinner"
         android:layout_width="0dp"
@@ -381,15 +385,19 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginBottom="8dp"
+                android:checked="true"
                 android:text="Live Mode (intermediate results)"
                 android:textColor="?android:attr/textColorPrimary"
                 android:visibility="gone" />
 
-            <!-- Run/Recordボタンとバックエンド選択を同じ高さで横並びにする -->
+            <!-- Run/Recordボタンとバックエンド選択を同じ高さで横並びにする。
+                 baseline揃えだとSpinnerがボタンの文字位置に合わせて下にずれ、下端が切れるため無効にする -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginBottom="8dp"
+                android:baselineAligned="false"
+                android:gravity="center_vertical"
                 android:orientation="horizontal">
 
                 <Button
@@ -1010,4 +1018,8 @@
             app:iconPadding="0dp" />
     </LinearLayout>
 
+    <include android:id="@+id/voiceAgentSession" layout="@layout/voice_agent_session"
+        android:layout_width="0dp" android:layout_height="0dp" android:visibility="gone"
+        app:layout_constraintTop_toTopOf="parent" app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintStart_toStartOf="parent" app:layout_constraintEnd_toEndOf="parent" />
 </androidx.constraintlayout.widget.ConstraintLayout>
