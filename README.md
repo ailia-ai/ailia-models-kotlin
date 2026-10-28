@@ -58,7 +58,7 @@ For a repeatable test, select **テスト：GPT-SoVITS合成音声** and enter o
 After installing the app and Android test APKs on a supported device with the QNN models cached, run the same two synthesized queries through the public session API:
 
 ```shell
-adb shell am instrument -w -e class jp.axinc.ailia_kotlin.VoiceAgentInstrumentedTest#synthesizedQueriesCompleteTwoVoiceTurns -e voiceAgentNative true ai.ailia.ailia_kotlin_qnn.test/androidx.test.runner.AndroidJUnitRunner
+adb shell am instrument -w -e class jp.axinc.ailia_kotlin.VoiceAgentInstrumentedTest#synthesizedQueriesCompleteTwoVoiceTurns -e voiceAgentNative true ai.ailia.ailia_kotlin.test/androidx.test.runner.AndroidJUnitRunner
 ```
 
 The instrumentation test checks both questions through VAD, recognition, responses and stage transitions. After the second answer it explicitly grants microphone access and resumes real microphone capture, checking for more than two seconds that playback does not cause an unsolicited turn. It saves queries, recognized text, answers, states and the microphone observation to `voice-agent-synthesized-test.json` in the app's external files directory. Run it in a quiet room without speaking during the final microphone observation.

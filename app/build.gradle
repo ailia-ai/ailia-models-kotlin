@@ -8,7 +8,7 @@ android {
     compileSdk 35
 
     defaultConfig {
-        applicationId "ai.ailia.ailia_kotlin_qnn"
+        applicationId "ai.ailia.ailia_kotlin"
         minSdk 21
         targetSdk 35
         versionCode 5
