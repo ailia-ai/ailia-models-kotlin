@@ -195,7 +195,8 @@ class AiliaVoiceSample(private val modelDirectory: File) {
         )
     }
 
-    fun initializeVoice(envId: Int = -1, listener: ModelDownloadListener? = null): Boolean {
+    /** Download separately so composite samples can prepare models without loading them all into RAM. */
+    fun downloadModel(listener: ModelDownloadListener? = null): Boolean {
         this.downloadListener = listener
         return try {
             Log.i(TAG, "Begin model download for $modelType")
@@ -216,7 +217,26 @@ class AiliaVoiceSample(private val modelDirectory: File) {
             }
 
             Log.i(TAG, "End model download")
+            listener?.onComplete()
+            true
+        } catch (e: Exception) {
+            Log.e(TAG, "Voice model download failed", e)
+            listener?.onError(e.message ?: "Voice model download failed")
+            false
+        } finally {
+            this.downloadListener = null
+        }
+    }
 
+    fun initializeVoice(envId: Int = -1, listener: ModelDownloadListener? = null): Boolean {
+        return try {
+            val downloadProgress = listener?.let { target -> object : ModelDownloadListener {
+                override fun onProgress(fileName: String, bytesDownloaded: Long, totalBytes: Long) =
+                    target.onProgress(fileName, bytesDownloaded, totalBytes)
+                override fun onComplete() = Unit // Notify only after the engine has also been initialized.
+                override fun onError(error: String) = target.onError(error)
+            } }
+            if (!downloadModel(downloadProgress)) return false
             if (isInitialized) {
                 releaseVoice()
             }
@@ -308,8 +328,6 @@ class AiliaVoiceSample(private val modelDirectory: File) {
             listener?.onError(e.message ?: "Unknown error")
             releaseVoice()
             false
-        } finally {
-            this.downloadListener = null
         }
     }
 
@@ -334,19 +352,33 @@ class AiliaVoiceSample(private val modelDirectory: File) {
         }
     }
 
-    fun textToSpeech(audio: FloatArray, channels: Int, sampleRate: Int, refText: String, refLang: String, text: String, textLang: String) : Long {
-        Log.d(TAG, "Starting ailia Voice JNI sample ($modelType)")
+    fun textToSpeech(audio: FloatArray, channels: Int, sampleRate: Int, refText: String, refLang: String, text: String, textLang: String, autoPlay: Boolean = true) : Long {
+        lastAudioData = null
+        if (!setReferenceAudio(audio, channels, sampleRate, refText, refLang)) return -1
+        return synthesizeText(text, textLang, autoPlay)
+    }
 
-        if (voice == null) {
-            return -1
-        }
-
-        try {
-            val refG2pText = voice?.g2p(refText, g2pTypeForLang(refLang))!!
+    /** Set once after initialization, then use synthesizeText repeatedly with the same reference. */
+    fun setReferenceAudio(audio: FloatArray, channels: Int, sampleRate: Int, refText: String, refLang: String): Boolean {
+        val engine = voice ?: return false
+        return try {
+            val refG2pText = engine.g2p(refText, g2pTypeForLang(refLang))
             Log.d(TAG, "Ref text: $refText")
             Log.d(TAG, "Ref Features: $refG2pText")
-            voice?.setReferenceAudio(audio, audio.size * 4, channels, sampleRate, refG2pText)
+            engine.setReferenceAudio(audio, audio.size * 4, channels, sampleRate, refG2pText)
+            true
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to set reference audio", e)
+            false
+        }
+    }
 
+    /** Synthesize using the reference already configured on this voice instance. */
+    fun synthesizeText(text: String, textLang: String, autoPlay: Boolean = true): Long {
+        Log.d(TAG, "Starting ailia Voice JNI sample ($modelType)")
+        lastAudioData = null
+        if (voice == null) return -1
+        try {
             val targetLanguage = if (isDistillModel(modelType)) "ja" else textLang
             val g2pText = voice?.g2p(text, g2pTypeForLang(targetLanguage))!!
             Log.d(TAG, "Text: $text")
@@ -360,7 +392,7 @@ class AiliaVoiceSample(private val modelDirectory: File) {
             lastAudioData = inferenceResult.data
             lastAudioChannels = inferenceResult.channels
             lastAudioSampleRate = inferenceResult.samplingRate
-            playAudio(inferenceResult.data, inferenceResult.channels, inferenceResult.samplingRate)
+            if (autoPlay) playAudio(inferenceResult.data, inferenceResult.channels, inferenceResult.samplingRate)
             return (endTime - startTime) / 1000000
         } catch (e: Exception) {
             Log.e(TAG, "Exception during sample execution", e)
