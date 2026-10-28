@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent" android:layout_height="match_parent"
+    android:background="#000000" android:padding="24dp">
+    <TextView android:id="@+id/voiceAgentStatus"
+        android:layout_width="0dp" android:layout_height="wrap_content" android:minHeight="24dp"
+        android:gravity="center" android:textColor="#D4D4D8" android:textSize="17sp"
+        android:fontFamily="sans-serif-medium" android:maxLines="1" android:ellipsize="end"
+        android:text="@string/voice_agent_status_preparing" android:accessibilityLiveRegion="polite"
+        app:layout_constraintTop_toTopOf="parent" app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent" />
+    <jp.axinc.ailia_kotlin.VoiceAgentOrbView android:id="@+id/voiceAgentOrb"
+        android:layout_width="0dp" android:layout_height="0dp" android:layout_marginTop="8dp"
+        app:layout_constraintTop_toBottomOf="@id/voiceAgentStatus" app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent" app:layout_constraintHeight_percent="0.44" />
+    <TextView android:id="@+id/voiceAgentTemperature"
+        android:layout_width="wrap_content" android:layout_height="wrap_content"
+        android:layout_marginTop="12dp" android:padding="10dp" android:background="#222222"
+        android:textColor="#FFFFFF" android:textSize="15sp" android:visibility="gone"
+        android:maxWidth="156dp" android:maxLines="2" android:ellipsize="end"
+        android:accessibilityLiveRegion="polite"
+        app:layout_constraintTop_toBottomOf="@id/voiceAgentStatus" app:layout_constraintStart_toStartOf="parent" />
+    <ImageView android:id="@+id/voiceAgentPhoto"
+        android:layout_width="88dp" android:layout_height="88dp" android:layout_marginTop="12dp"
+        android:background="#222222" android:scaleType="centerCrop" android:visibility="gone"
+        android:contentDescription="@string/voice_agent_photo"
+        app:layout_constraintTop_toBottomOf="@id/voiceAgentStatus" app:layout_constraintEnd_toEndOf="parent" />
+    <TextView android:id="@+id/voiceAgentProgress" android:layout_width="0dp" android:layout_height="wrap_content"
+        android:gravity="center" android:textColor="#A1A1AA" android:textSize="12sp"
+        app:layout_constraintTop_toBottomOf="@id/voiceAgentOrb" app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent" />
+    <ScrollView android:id="@+id/voiceAgentTranscriptScroll"
+        android:layout_width="0dp" android:layout_height="0dp" android:fillViewport="true"
+        android:layout_marginTop="16dp" android:layout_marginBottom="16dp"
+        app:layout_constraintTop_toBottomOf="@id/voiceAgentProgress" app:layout_constraintBottom_toTopOf="@+id/voiceAgentEnd"
+        app:layout_constraintStart_toStartOf="parent" app:layout_constraintEnd_toEndOf="parent">
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical">
+            <TextView android:id="@+id/voiceAgentInput" android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:gravity="center" android:textColor="#A1A1AA" android:textSize="17sp" android:contentDescription="@string/voice_agent_input" />
+            <TextView android:id="@+id/voiceAgentOutput" android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:layout_marginTop="24dp" android:gravity="center" android:textColor="#F5F5F5" android:textSize="22sp"
+                android:lineSpacingExtra="5dp" android:contentDescription="@string/voice_agent_output" />
+        </LinearLayout>
+    </ScrollView>
+    <com.google.android.material.button.MaterialButton android:id="@+id/voiceAgentSend"
+        android:layout_width="64dp" android:layout_height="64dp" android:text=""
+        android:contentDescription="@string/voice_agent_send" android:backgroundTint="#FFFFFF"
+        android:padding="0dp" android:minWidth="0dp" android:insetTop="0dp" android:insetBottom="0dp"
+        android:enabled="false" android:visibility="gone" app:cornerRadius="32dp"
+        app:icon="@drawable/ic_send" app:iconTint="#000000" app:iconSize="24dp"
+        app:iconPadding="0dp" app:iconGravity="textStart"
+        app:layout_constraintBottom_toBottomOf="parent" app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent" />
+    <com.google.android.material.button.MaterialButton android:id="@id/voiceAgentEnd"
+        android:layout_width="64dp" android:layout_height="64dp" android:text="@string/voice_agent_close" android:textSize="30sp"
+        android:contentDescription="@string/voice_agent_end" android:textColor="#FFFFFF" android:backgroundTint="#222222"
+        android:padding="0dp" android:minWidth="0dp" android:insetTop="0dp" android:insetBottom="0dp" app:cornerRadius="32dp"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintEnd_toEndOf="parent" />
+</androidx.constraintlayout.widget.ConstraintLayout>

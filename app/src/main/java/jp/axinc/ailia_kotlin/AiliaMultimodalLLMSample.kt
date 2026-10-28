@@ -50,6 +50,7 @@ data class MultimodalLLMPerformance(
  * Sample class demonstrating ailia Multimodal LLM inference (VLM / ALM).
  *
  * Gemma 4 (E2B / E4B)をテキストモデルとして使い、mmprojで画像または音声を入力する。
+ * バックエンドにQNNを選ぶと、SoC固有の変換済みモデル(.qnn)をNPUで実行する。
  */
 class AiliaMultimodalLLMSample(
     private val mediaType: MultimodalMediaType = MultimodalMediaType.IMAGE,
@@ -64,6 +65,9 @@ class AiliaMultimodalLLMSample(
     /** 会話履歴にメディアを送ったか。メディアは会話の最初の質問だけで送る。 */
     private var mediaSent = false
     private val cancelRequested = AtomicBoolean(false)
+
+    /** 実行バックエンド。QNNは対応SoCの場合のみ選択できる。 */
+    var backend: LLMBackend = LLMBackend.CPU
 
     /** 使用するモデル。mmprojを持つGemma 4のみ。 */
     var modelType: LLMModelType = LLMModelType.GEMMA_4_E2B
@@ -82,6 +86,8 @@ class AiliaMultimodalLLMSample(
     companion object {
         private const val TAG = "AiliaMultimodalLLM"
         private const val N_CTX = 8192 // Context window size
+        // QNNモデルはコンテキスト長が変換時に固定されるため、0を指定してモデル内の値を使う
+        private const val N_CTX_QNN = 0
         private const val MAX_GENERATION_STEPS = 4096
     }
 
@@ -116,16 +122,20 @@ class AiliaMultimodalLLMSample(
                 release()
             }
 
+            val useQnn = backend == LLMBackend.QNN
             val modelFileName = modelFileName()
             val projectorFileName = projectorFileName()
-            if (projectorFileName == null) {
-                listener?.onError("${modelType.displayName} does not support image or audio input")
+            if (modelFileName == null || projectorFileName == null) {
+                listener?.onError(
+                    if (useQnn) "QNN model is not available on this SoC"
+                    else "${modelType.displayName} does not support image or audio input"
+                )
                 return false
             }
 
             // Download model file
-            Log.i(TAG, "Downloading $modelFileName...")
-            val modelFile = downloadModelFile(context, modelFileName, listener)
+            Log.i(TAG, "Downloading $modelFileName for ${backend.displayName}...")
+            val modelFile = downloadModelFile(context, modelFileName!!, useQnn, listener)
             if (modelFile == null) {
                 listener?.onError("Failed to download model")
                 return false
@@ -133,8 +143,8 @@ class AiliaMultimodalLLMSample(
             modelPath = modelFile.absolutePath
 
             // Download projector (mmproj) file
-            Log.i(TAG, "Downloading $projectorFileName...")
-            val projectorFile = downloadModelFile(context, projectorFileName, listener)
+            Log.i(TAG, "Downloading $projectorFileName for ${backend.displayName}...")
+            val projectorFile = downloadModelFile(context, projectorFileName!!, useQnn, listener)
             if (projectorFile == null) {
                 listener?.onError("Failed to download projector")
                 return false
@@ -144,8 +154,8 @@ class AiliaMultimodalLLMSample(
             // Download MTP assistant file
             val mtpFileName = mtpFileName()
             val mtpFile = mtpFileName?.let {
-                Log.i(TAG, "Downloading $it...")
-                downloadModelFile(context, it, listener)
+                Log.i(TAG, "Downloading $it for ${backend.displayName}...")
+                downloadModelFile(context, it, useQnn, listener)
             }
             if (mtpFileName != null && mtpFile == null) {
                 listener?.onError("Failed to download MTP assistant")
@@ -162,23 +172,16 @@ class AiliaMultimodalLLMSample(
             sampleMediaPath = sampleMediaFile.absolutePath
             Log.i(TAG, "Sample media ready: $sampleMediaPath")
 
-            // Create AiliaLLM instance
-            Log.i(TAG, "Creating AiliaLLM instance...")
-            llm = AiliaLLM()
-
-            // Open model file
-            Log.i(TAG, "Opening model file: $modelPath")
-            llm!!.openModelFile(modelPath!!, N_CTX)
-
-            // MTP assistant must be opened before the multimodal projector and the first prompt
-            isMtpActive = mtpFile != null && LLMMtp.open(llm!!, mtpFile.absolutePath)
-
-            // Open multimodal projector
-            Log.i(TAG, "Opening multimodal projector: $projectorPath")
-            llm!!.openMultimodalProjectorFile(projectorPath!!)
-
-            // Set default sampling parameters
-            llm!!.setSamplingParams(40, 0.9f, 0.4f, 1234)
+            // LLM系の他の画面と同じモデル・MTP・mmprojなら開いているモデルを使い回す
+            llm = SharedLLM.acquire(
+                SharedLLM.Config(
+                    modelPath = modelPath!!,
+                    nCtx = if (useQnn) N_CTX_QNN else N_CTX,
+                    mtpPath = mtpFile?.absolutePath,
+                    projectorPath = projectorPath!!,
+                )
+            )
+            isMtpActive = SharedLLM.isMtpActive
 
             // Check multimodal capabilities
             val capabilities = llm!!.getMultimodalCapabilities()
@@ -208,18 +211,25 @@ class AiliaMultimodalLLMSample(
         }
     }
 
-    /** 使用するテキストモデルのファイル名。 */
-    fun modelFileName(): String = modelType.fileName
+    /** 現在のバックエンドで使用するテキストモデルのファイル名。QNN未対応の組み合わせではnull。 */
+    fun modelFileName(): String? = when (backend) {
+        LLMBackend.CPU -> modelType.fileName
+        LLMBackend.QNN -> QnnSupport.llmQnnFileName(modelType)
+    }
 
-    /** 使用するmmprojのファイル名。画像・音声に対応しないモデルではnull。 */
-    fun projectorFileName(): String? = modelType.mmprojFileName
+    /** 現在のバックエンドで使用するmmprojのファイル名。QNN未対応の組み合わせではnull。 */
+    fun projectorFileName(): String? = when (backend) {
+        LLMBackend.CPU -> modelType.mmprojFileName
+        LLMBackend.QNN -> QnnSupport.llmQnnMmprojFileName(modelType)
+    }
 
     /** MTPを使う場合のAssistantのファイル名。MTP無効時や対応しない組み合わせではnull。 */
-    fun mtpFileName(): String? = if (mtpEnabled) modelType.mtpFileName else null
+    fun mtpFileName(): String? = if (mtpEnabled) LLMMtp.assistantFileName(modelType, backend) else null
 
     private fun downloadModelFile(
         context: Context,
         fileName: String,
+        useQnn: Boolean,
         listener: MultimodalLLMListener?,
     ): File? {
         val downloadListener = object : ModelDownloader.DownloadListener {
@@ -236,7 +246,11 @@ class AiliaMultimodalLLMSample(
                 downloadError = error
             }
         }
-        val file = ModelDownloader.downloadLLMModel(context, fileName, downloadListener)
+        val file = if (useQnn) {
+            ModelDownloader.downloadQnnLLMModel(context, fileName, downloadListener)
+        } else {
+            ModelDownloader.downloadLLMModel(context, fileName, downloadListener)
+        }
         if (file == null) downloadError = downloadError ?: "Failed to download $fileName"
         return file
     }
@@ -245,9 +259,10 @@ class AiliaMultimodalLLMSample(
      * Checks if all required files are already downloaded.
      */
     fun areFilesDownloaded(context: Context): Boolean {
+        val modelFileName = modelFileName() ?: return false
         val projectorFileName = projectorFileName() ?: return false
-        return listOfNotNull(modelFileName(), projectorFileName, mtpFileName()).all {
-            ModelDownloader.isLLMModelDownloaded(context, it)
+        return listOfNotNull(modelFileName, projectorFileName, mtpFileName()).all {
+            LLMMtp.isDownloaded(context, it, backend)
         }
     }
 
@@ -303,6 +318,11 @@ class AiliaMultimodalLLMSample(
                 AiliaLLMMultimodalChatMessage("user", userInput)
             }
             conversationHistory.add(userMessage)
+
+            // モデルは他の画面と共有しているため、この画面の設定を毎回設定し直す
+            llm!!.setSamplingParams(40, 0.9f, 0.4f, 1234)
+            llm!!.setTools(null)
+            llm!!.setThinking(false)
 
             // Set the multimodal prompt (media encoding takes a while on mobile CPUs)
             Log.i(TAG, "chatWithMedia: calling setPrompt with ${conversationHistory.size} messages...")
@@ -433,25 +453,19 @@ class AiliaMultimodalLLMSample(
     }
 
     /**
-     * Releases the LLM resources.
+     * この画面の会話を破棄する。モデル自体は[SharedLLM]が保持し、他のLLM系の画面と使い回す。
      */
     fun release() {
         cancelGeneration()
-        try {
-            llm?.destroy()
-        } catch (e: Exception) {
-            Log.e(TAG, "Error releasing multimodal LLM: ${e.message}")
-        } finally {
-            llm = null
-            isInitialized = false
-            isMtpActive = false
-            modelPath = null
-            projectorPath = null
-            sampleMediaPath = null
-            conversationHistory.clear()
-            mediaSent = false
-            Log.i(TAG, "Multimodal LLM released")
-        }
+        llm = null
+        isInitialized = false
+        isMtpActive = false
+        modelPath = null
+        projectorPath = null
+        sampleMediaPath = null
+        conversationHistory.clear()
+        mediaSent = false
+        Log.i(TAG, "Multimodal LLM released")
     }
 
     /**

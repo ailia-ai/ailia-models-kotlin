@@ -36,7 +36,16 @@ enum class LLMModelType(
 }
 
 /**
-* MTP(Multi-Token Prediction)のAssistant(ドラフトモデル)の有効化。
+ * LLMの実行バックエンド。
+ * QNNはSoC固有の変換済みモデル(.qnn)を使うため、対応SoC/モデルの場合のみ選択できる。
+ */
+enum class LLMBackend(val displayName: String) {
+    CPU("CPU"),
+    QNN("QNN (NPU)"),
+}
+
+/**
+ * MTP(Multi-Token Prediction)のAssistant(ドラフトモデル)の取得と有効化。
  *
  * Assistantが次の数トークンを予想し、本体がまとめて検証することでDecodeを高速化する。
  * 本体を開いた後、最初のプロンプト設定より前に1回だけ[open]を呼び出す。
@@ -44,8 +53,29 @@ enum class LLMModelType(
 object LLMMtp {
     private const val TAG = "LLMMtp"
 
-    /** Assistantが1回に生成する候補トークン数。 */
+    /** Assistantが1回に生成する候補トークン数。QNNは1〜3に対応する。 */
     const val N_DRAFT = 3
+
+    /** モデル/バックエンドに対応するAssistantのファイル名。MTPに対応しない組み合わせではnull。 */
+    fun assistantFileName(modelType: LLMModelType, backend: LLMBackend): String? = when (backend) {
+        LLMBackend.CPU -> modelType.mtpFileName
+        LLMBackend.QNN -> QnnSupport.llmQnnMtpAssistantFileName(modelType)
+    }
+
+    fun download(
+        context: Context,
+        fileName: String,
+        backend: LLMBackend,
+        listener: ModelDownloader.DownloadListener?,
+    ): java.io.File? = when (backend) {
+        LLMBackend.CPU -> ModelDownloader.downloadLLMModel(context, fileName, listener)
+        LLMBackend.QNN -> ModelDownloader.downloadQnnLLMModel(context, fileName, listener)
+    }
+
+    fun isDownloaded(context: Context, fileName: String, backend: LLMBackend): Boolean = when (backend) {
+        LLMBackend.CPU -> ModelDownloader.isLLMModelDownloaded(context, fileName)
+        LLMBackend.QNN -> ModelDownloader.isQnnLLMModelDownloaded(context, fileName)
+    }
 
     /**
      * Assistantを開いてMTPを有効にする。
@@ -104,6 +134,7 @@ class AiliaLLMSample {
     private val cancelRequested = AtomicBoolean(false)
 
     var modelType: LLMModelType = LLMModelType.GEMMA_4_E2B
+    var backend: LLMBackend = LLMBackend.CPU
 
     /** MTPを使うか。Assistantのないモデル(Gemma 2など)では無視する。 */
     var mtpEnabled: Boolean = true
@@ -125,6 +156,8 @@ class AiliaLLMSample {
     companion object {
         private const val TAG = "AiliaLLMSample"
         private const val N_CTX = 8192 // Context window size
+        // QNNモデルはコンテキスト長が変換時に固定されるため、0を指定してモデル内の値を使う
+        private const val N_CTX_QNN = 0
         private const val MAX_GENERATION_STEPS = 4096
     }
 
@@ -153,21 +186,32 @@ class AiliaLLMSample {
                 release()
             }
 
-            Log.i(TAG, "Downloading ${modelType.displayName} model (${modelType.fileName})...")
-            downloadingFileName = modelType.fileName
-            val modelFile = ModelDownloader.downloadLLMModel(context, modelType.fileName, listener)
+            val qnnFileName = qnnFileNameOrNull()
+            if (backend == LLMBackend.QNN && qnnFileName == null) {
+                Log.e(TAG, "QNN model is not available for ${modelType.displayName} on ${QnnSupport.socName}")
+                return false
+            }
+
+            val fileName = qnnFileName ?: modelType.fileName
+            Log.i(TAG, "Downloading ${modelType.displayName} model ($fileName) for ${backend.displayName}...")
+            downloadingFileName = fileName
+            val modelFile = if (qnnFileName != null) {
+                ModelDownloader.downloadQnnLLMModel(context, qnnFileName, listener)
+            } else {
+                ModelDownloader.downloadLLMModel(context, modelType.fileName, listener)
+            }
             if (modelFile == null) {
                 Log.e(TAG, "Failed to download model")
-                downloadError = downloadError ?: "Failed to download ${modelType.fileName}"
+                downloadError = downloadError ?: "Failed to download $fileName"
                 return false
             }
             modelPath = modelFile.absolutePath
 
             val mtpFileName = mtpFileNameOrNull()
             val mtpFile = mtpFileName?.let {
-                Log.i(TAG, "Downloading MTP assistant ($it)...")
+                Log.i(TAG, "Downloading MTP assistant ($it) for ${backend.displayName}...")
                 downloadingFileName = it
-                ModelDownloader.downloadLLMModel(context, it, listener)
+                LLMMtp.download(context, it, backend, listener)
             }
             if (mtpFileName != null && mtpFile == null) {
                 Log.e(TAG, "Failed to download MTP assistant")
@@ -175,16 +219,28 @@ class AiliaLLMSample {
                 return false
             }
 
-            Log.i(TAG, "Creating AiliaLLM instance...")
-            llm = AiliaLLM()
+            // mmprojは後から開けないため、LLM系のどの画面でも使えるよう常に開く
+            val projectorFileName = SharedLLM.projectorFileName(modelType, backend)
+            val projectorFile = projectorFileName?.let {
+                Log.i(TAG, "Downloading multimodal projector ($it) for ${backend.displayName}...")
+                downloadingFileName = it
+                SharedLLM.download(context, it, backend, listener)
+            }
+            if (projectorFileName != null && projectorFile == null) {
+                Log.e(TAG, "Failed to download multimodal projector")
+                downloadError = downloadError ?: "Failed to download $projectorFileName"
+                return false
+            }
 
-            Log.i(TAG, "Opening model file: $modelPath")
-            llm!!.openModelFile(modelPath!!, N_CTX)
-            // Assistantは本体を開いた後、最初のプロンプト設定より前に開く
-            isMtpActive = mtpFile != null && LLMMtp.open(llm!!, mtpFile.absolutePath)
-
-            // Set default sampling parameters
-            llm!!.setSamplingParams(40, 0.9f, 0.4f, 1234)
+            llm = SharedLLM.acquire(
+                SharedLLM.Config(
+                    modelPath = modelPath!!,
+                    nCtx = if (qnnFileName != null) N_CTX_QNN else N_CTX,
+                    mtpPath = mtpFile?.absolutePath,
+                    projectorPath = projectorFile?.absolutePath,
+                )
+            )
+            isMtpActive = SharedLLM.isMtpActive
 
             // Add system prompt
             conversationHistory.clear()
@@ -205,9 +261,16 @@ class AiliaLLMSample {
      * Checks if the model is already downloaded.
      */
     fun isModelDownloaded(context: Context): Boolean {
-        val modelDownloaded = ModelDownloader.isLLMModelDownloaded(context, modelType.fileName)
-        val mtpDownloaded = mtpFileNameOrNull()?.let { ModelDownloader.isLLMModelDownloaded(context, it) } ?: true
-        return modelDownloaded && mtpDownloaded
+        val qnnFileName = qnnFileNameOrNull()
+        val modelDownloaded = if (qnnFileName != null) {
+            ModelDownloader.isQnnLLMModelDownloaded(context, qnnFileName)
+        } else {
+            ModelDownloader.isLLMModelDownloaded(context, modelType.fileName)
+        }
+        val mtpDownloaded = mtpFileNameOrNull()?.let { LLMMtp.isDownloaded(context, it, backend) } ?: true
+        val projectorDownloaded = SharedLLM.projectorFileName(modelType, backend)
+            ?.let { SharedLLM.isDownloaded(context, it, backend) } ?: true
+        return modelDownloaded && mtpDownloaded && projectorDownloaded
     }
 
     /**
@@ -222,12 +285,16 @@ class AiliaLLMSample {
         return BenchmarkPrompt.build(context, targetTokens) { text -> model.getTokenCount(text) }
     }
 
-    /** 現在のモデルでダウンロードするモデルファイル名。 */
-    fun modelFileName(): String = modelType.fileName
+    /** 現在のバックエンド/モデルでダウンロードするモデルファイル名。 */
+    fun modelFileName(): String = qnnFileNameOrNull() ?: modelType.fileName
+
+    /** QNNを選択している場合のQNNモデルファイル名。CPU時や未対応の組み合わせではnull。 */
+    private fun qnnFileNameOrNull(): String? =
+        if (backend == LLMBackend.QNN) QnnSupport.llmQnnFileName(modelType) else null
 
     /** MTPを使う場合のAssistantのファイル名。MTP無効時や対応しないモデルではnull。 */
     private fun mtpFileNameOrNull(): String? =
-        if (mtpEnabled) modelType.mtpFileName else null
+        if (mtpEnabled) LLMMtp.assistantFileName(modelType, backend) else null
 
     /**
      * Generates a response for the given user input.
@@ -252,6 +319,11 @@ class AiliaLLMSample {
 
             // Add user message to conversation history
             conversationHistory.add(AiliaLLMChatMessage("user", userInput))
+
+            // モデルは他の画面と共有しているため、この画面の設定を毎回設定し直す
+            llm!!.setSamplingParams(40, 0.9f, 0.4f, 1234)
+            llm!!.setTools(null)
+            llm!!.setThinking(false)
 
             // Set the prompt
             llm!!.setPrompt(conversationHistory.toTypedArray())
@@ -377,21 +449,15 @@ class AiliaLLMSample {
     }
 
     /**
-     * Releases the LLM resources.
+     * この画面の会話を破棄する。モデル自体は[SharedLLM]が保持し、他のLLM系の画面と使い回す。
      */
     fun release() {
         cancelGeneration()
-        try {
-            llm?.destroy()
-        } catch (e: Exception) {
-            Log.e(TAG, "Error releasing LLM: ${e.message}")
-        } finally {
-            llm = null
-            isInitialized = false
-            isMtpActive = false
-            modelPath = null
-            conversationHistory.clear()
-            Log.i(TAG, "LLM released")
-        }
+        llm = null
+        isInitialized = false
+        isMtpActive = false
+        modelPath = null
+        conversationHistory.clear()
+        Log.i(TAG, "LLM released")
     }
 }
