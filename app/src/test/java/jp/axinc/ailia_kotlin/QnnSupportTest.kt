@@ -114,6 +114,7 @@ class QnnSupportTest {
             QnnSupport.speechQnnFileName("sc8380xp", SpeechModelType.WHISPER_LARGE_V3),
         )
         assertNull(QnnSupport.speechQnnFileName("sm8475", SpeechModelType.WHISPER_LARGE_V3))
+        assertNull(QnnSupport.speechQnnFileName("qcs6490", SpeechModelType.WHISPER_LARGE_V3))
         assertNull(QnnSupport.speechQnnFileName("sm7635", SpeechModelType.WHISPER_TINY))
         assertEquals(
             "whisper-large-v3-turbo-sm7635-int16.qnn",
