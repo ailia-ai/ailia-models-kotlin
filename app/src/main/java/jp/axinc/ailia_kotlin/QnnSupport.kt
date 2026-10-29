@@ -161,7 +161,10 @@ object QnnSupport {
     private val SPEECH_QNN_SOCS = setOf("qcs6490", "sc8380xp", "sm7635", "sm8475")
 
     private val SPEECH_QNN_MODELS = mapOf(
+        SpeechModelType.WHISPER_SMALL to QnnModel("whisper-small", SPEECH_QNN_SOCS),
         SpeechModelType.WHISPER_MEDIUM to QnnModel("whisper-medium", SPEECH_QNN_SOCS),
+        // sm8475はQnnContext_createFromBinaryがQNN_COMMON_ERROR_MEM_ALLOCで、qcs6490はOOMで失敗するため非対応
+        SpeechModelType.WHISPER_LARGE_V3 to QnnModel("whisper-large-v3", SPEECH_QNN_SOCS - "sm8475" - "qcs6490"),
         SpeechModelType.WHISPER_LARGE_V3_TURBO to QnnModel("whisper-large-v3-turbo", SPEECH_QNN_SOCS),
     )
 

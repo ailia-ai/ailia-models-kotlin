@@ -104,7 +104,18 @@ class QnnSupportTest {
     }
 
     @Test
-    fun `Whisper medium and Large V3 Turbo run on QNN`() {
+    fun `Whisper Small, Medium, Large V3 and Large V3 Turbo run on QNN`() {
+        assertEquals(
+            "whisper-small-sm7635-int16.qnn",
+            QnnSupport.speechQnnFileName("sm7635", SpeechModelType.WHISPER_SMALL),
+        )
+        assertEquals(
+            "whisper-large-v3-sc8380xp-int16.qnn",
+            QnnSupport.speechQnnFileName("sc8380xp", SpeechModelType.WHISPER_LARGE_V3),
+        )
+        assertNull(QnnSupport.speechQnnFileName("sm8475", SpeechModelType.WHISPER_LARGE_V3))
+        assertNull(QnnSupport.speechQnnFileName("qcs6490", SpeechModelType.WHISPER_LARGE_V3))
+        assertNull(QnnSupport.speechQnnFileName("sm7635", SpeechModelType.WHISPER_TINY))
         assertEquals(
             "whisper-large-v3-turbo-sm7635-int16.qnn",
             QnnSupport.speechQnnFileName("sm7635", SpeechModelType.WHISPER_LARGE_V3_TURBO),
@@ -113,7 +124,6 @@ class QnnSupportTest {
             "whisper-medium-sm7635-int16.qnn",
             QnnSupport.speechQnnFileName("sm7635", SpeechModelType.WHISPER_MEDIUM),
         )
-        assertNull(QnnSupport.speechQnnFileName("sm7635", SpeechModelType.WHISPER_SMALL))
         assertEquals(
             "whisper-medium-sm8475-int16.qnn",
             QnnSupport.speechQnnFileName("sm8475", SpeechModelType.WHISPER_MEDIUM),

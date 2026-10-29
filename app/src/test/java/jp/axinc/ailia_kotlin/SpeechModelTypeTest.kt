@@ -15,7 +15,7 @@ class SpeechModelTypeTest {
     @Test
     fun enumValues_hasSixModels() {
         val values = SpeechModelType.values()
-        assertEquals("Should have 6 speech model types", 6, values.size)
+        assertEquals("Should have 7 speech model types", 7, values.size)
     }
 
     @Test
@@ -25,6 +25,7 @@ class SpeechModelTypeTest {
         assertTrue("Should contain WHISPER_BASE", names.contains("WHISPER_BASE"))
         assertTrue("Should contain WHISPER_SMALL", names.contains("WHISPER_SMALL"))
         assertTrue("Should contain WHISPER_MEDIUM", names.contains("WHISPER_MEDIUM"))
+        assertTrue("Should contain WHISPER_LARGE_V3", names.contains("WHISPER_LARGE_V3"))
         assertTrue("Should contain WHISPER_LARGE_V3_TURBO", names.contains("WHISPER_LARGE_V3_TURBO"))
         assertTrue("Should contain SENSEVOICE_SMALL", names.contains("SENSEVOICE_SMALL"))
     }
@@ -41,6 +42,7 @@ class SpeechModelTypeTest {
         assertEquals("Whisper Base", SpeechModelType.WHISPER_BASE.displayName)
         assertEquals("Whisper Small", SpeechModelType.WHISPER_SMALL.displayName)
         assertEquals("Whisper Medium", SpeechModelType.WHISPER_MEDIUM.displayName)
+        assertEquals("Whisper Large V3", SpeechModelType.WHISPER_LARGE_V3.displayName)
         assertEquals("Whisper Large V3 Turbo", SpeechModelType.WHISPER_LARGE_V3_TURBO.displayName)
         assertEquals("SenseVoice Small", SpeechModelType.SENSEVOICE_SMALL.displayName)
     }
@@ -147,9 +149,18 @@ class SpeechModelTypeTest {
     }
 
     @Test
+    fun whisperLargeV3_requiresExternalWeights() {
+        // onnx内の外部データ参照名と一致している必要がある
+        assertEquals(
+            listOf("encoder_large_v3_weights.pb", "decoder_large_v3_fix_kv_cache_weights.pb"),
+            SpeechModelType.WHISPER_LARGE_V3.extraFiles.map { it.fileName }
+        )
+    }
+
+    @Test
     fun otherModels_haveNoExtraFiles() {
         for (model in SpeechModelType.values()) {
-            if (model != SpeechModelType.WHISPER_LARGE_V3_TURBO) {
+            if (model != SpeechModelType.WHISPER_LARGE_V3_TURBO && model != SpeechModelType.WHISPER_LARGE_V3) {
                 assertTrue("${model.name} should have no extra files", model.extraFiles.isEmpty())
             }
         }

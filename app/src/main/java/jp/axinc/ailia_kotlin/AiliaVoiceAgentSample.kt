@@ -40,8 +40,8 @@ class AiliaVoiceAgentSample(context: Context, private val executor: ExecutorServ
         val mtpEnabled: Boolean = llmModelType == LLMModelType.GEMMA_4_E2B,
     ) {
         init {
-            require(speechModelType == SpeechModelType.WHISPER_MEDIUM ||
-                speechModelType == SpeechModelType.WHISPER_LARGE_V3_TURBO) { "Whisper MediumまたはTurboを選択してください" }
+            require(speechModelType in setOf(SpeechModelType.WHISPER_MEDIUM, SpeechModelType.WHISPER_LARGE_V3,
+                SpeechModelType.WHISPER_LARGE_V3_TURBO)) { "Whisper Medium、Large V3またはTurboを選択してください" }
             require(llmModelType in LLMModelType.GEMMA_4_MODELS) { "Gemma 4を選択してください" }
             require(inputMode != InputMode.SYNTHESIZED_QUERIES ||
                 (testQueries.isNotEmpty() && testQueries.all { it.isNotBlank() })) {

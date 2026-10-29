@@ -271,4 +271,48 @@ class SpeechInstrumentedTest {
 
         speechSample.releaseSpeech()
     }
+
+    /**
+     * 大きなモデル向けの実機検証。-e whisperModel <SpeechModelType名> (-e whisperQnn true) で指定したときだけ実行する。
+     * アプリと同じモデルディレクトリを使い、結果を whisper-<model>-<cpu|qnn>.json に保存する。
+     */
+    @Test(timeout = 3_600_000)
+    fun testSelectedWhisperInference() {
+        val args = InstrumentationRegistry.getArguments()
+        val modelName = args.getString("whisperModel")
+        org.junit.Assume.assumeTrue(modelName != null)
+        val modelType = SpeechModelType.valueOf(modelName!!)
+        val qnn = args.getString("whisperQnn") == "true"
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        System.loadLibrary("ailia")
+        axip.ailia.Ailia.SetTemporaryCachePath(context.cacheDir.absolutePath)
+        if (qnn) assertNotNull("QNN model should exist for ${QnnSupport.socName}", QnnSupport.speechQnnFileName(modelType))
+        val cpu = axip.ailia.AiliaModel.getEnvironments().first {
+            it.type == axip.ailia.AiliaEnvironment.TYPE_CPU && !QnnSupport.isQnnEnvironmentName(it.name)
+        }
+        val sample = AiliaSpeechSample(ModelDownloader.modelDirectory(context)).apply {
+            currentModelType = modelType
+            useQnn = qnn
+            language = "ja"
+        }
+        try {
+            assertTrue("${modelType.displayName} download should succeed", sample.downloadModel())
+            val initStart = System.nanoTime()
+            assertTrue("${modelType.displayName} init should succeed", sample.initializeSpeech(cpu.id))
+            val initMs = (System.nanoTime() - initStart) / 1_000_000
+            val audio = loadDemoAudio()
+            val start = System.nanoTime()
+            val result = sample.process(audio.audioData, audio.channels, audio.sampleRate)
+            val elapsed = (System.nanoTime() - start) / 1_000_000
+            Log.i(TAG, "${modelType.displayName} qnn=$qnn soc=${QnnSupport.socName} init=${initMs}ms inference=${elapsed}ms result=$result")
+            File(ModelDownloader.modelDirectory(context), "whisper-${modelType.name}-${if (qnn) "qnn" else "cpu"}.json").writeText(
+                org.json.JSONObject().put("model", modelType.displayName).put("qnn", qnn)
+                    .put("soc", QnnSupport.socName).put("initMs", initMs).put("inferenceMs", elapsed)
+                    .put("result", org.json.JSONArray(result)).toString(2)
+            )
+            assertTrue("${modelType.displayName} result should not be empty", result.isNotEmpty())
+        } finally {
+            sample.releaseSpeech()
+        }
+    }
 }
