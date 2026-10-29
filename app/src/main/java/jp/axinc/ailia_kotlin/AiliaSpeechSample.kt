@@ -65,6 +65,25 @@ enum class SpeechModelType(
         "decoder_medium.onnx",
         AiliaSpeech.AILIA_SPEECH_MODEL_TYPE_WHISPER_MULTILINGUAL_MEDIUM
     ),
+    WHISPER_LARGE_V3(
+        "Whisper Large V3",
+        "https://storage.googleapis.com/ailia-models/whisper/encoder_large_v3.onnx",
+        "encoder_large_v3.onnx",
+        "https://storage.googleapis.com/ailia-models/whisper/decoder_large_v3_fix_kv_cache.onnx",
+        "decoder_large_v3.onnx",
+        AiliaSpeech.AILIA_SPEECH_MODEL_TYPE_WHISPER_MULTILINGUAL_LARGE_V3,
+        // encoder/decoderのweightは外部ファイル参照のため別途ダウンロードする(約2.5GB + 約3.9GB)
+        extraFiles = listOf(
+            ModelFileSpec(
+                "https://storage.googleapis.com/ailia-models/whisper/encoder_large_v3_weights.pb",
+                "encoder_large_v3_weights.pb"
+            ),
+            ModelFileSpec(
+                "https://storage.googleapis.com/ailia-models/whisper/decoder_large_v3_fix_kv_cache_weights.pb",
+                "decoder_large_v3_fix_kv_cache_weights.pb"
+            ),
+        ),
+    ),
     WHISPER_LARGE_V3_TURBO(
         "Whisper Large V3 Turbo",
         "https://storage.googleapis.com/ailia-models/whisper/encoder_turbo.opt.onnx",

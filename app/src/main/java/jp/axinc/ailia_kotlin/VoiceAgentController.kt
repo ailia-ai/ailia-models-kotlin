@@ -47,7 +47,8 @@ class VoiceAgentController(
 ) {
     private data class Environment(val name: String, val id: Int, val qnn: Boolean = false)
     private val sample = AiliaVoiceAgentSample(activity, executor)
-    private val speechModels = listOf(SpeechModelType.WHISPER_MEDIUM, SpeechModelType.WHISPER_LARGE_V3_TURBO)
+    private val speechModels = listOf(
+        SpeechModelType.WHISPER_MEDIUM, SpeechModelType.WHISPER_LARGE_V3, SpeechModelType.WHISPER_LARGE_V3_TURBO)
     private val llmModels = LLMModelType.GEMMA_4_MODELS
     private val speechModel: Spinner = activity.findViewById(R.id.voiceAgentSpeechModel)
     private val llmModel: Spinner = activity.findViewById(R.id.voiceAgentLlmModel)
