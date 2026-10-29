@@ -39,7 +39,7 @@ Models bundled in `res/raw` run without a download. Other models are downloaded 
 | Multimodal LLM (VLM) | [Gemma 4 E2B / E4B + mmproj](app/src/main/java/jp/axinc/ailia_kotlin/AiliaMultimodalLLMSample.kt) | ailia LLM (CPU / QNN) |
 | Audio LLM (ALM) | [Gemma 4 E2B / E4B + mmproj](app/src/main/java/jp/axinc/ailia_kotlin/AiliaMultimodalLLMSample.kt) | ailia LLM (CPU / QNN) |
 | Tool Use | [Gemma 4 E2B / E4B + air conditioner tool](app/src/main/java/jp/axinc/ailia_kotlin/AiliaToolUseSample.kt) | ailia LLM (CPU / QNN) |
-| Voice Agent | [Whisper Medium / Large V3 Turbo → Gemma 4 E2B / E4B → GPT-SoVITS V2-Pro Distill Base](app/src/main/java/jp/axinc/ailia_kotlin/AiliaVoiceAgentSample.kt) | ailia AI Speech + ailia LLM + ailia AI Voice |
+| Voice Agent | [Whisper Medium / Large V3 / Large V3 Turbo → Gemma 4 E2B / E4B → GPT-SoVITS V2-Pro Distill Base](app/src/main/java/jp/axinc/ailia_kotlin/AiliaVoiceAgentSample.kt) | ailia AI Speech + ailia LLM + ailia AI Voice |
 
 ## Documents
 

@@ -56,7 +56,7 @@
         android:text="@string/voice_agent_mtp_note" android:textSize="13sp" />
     <androidx.appcompat.widget.SwitchCompat android:id="@+id/voiceAgentSpeechOutput"
         android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="48dp"
-        android:layout_marginTop="20dp" android:checked="true" android:text="@string/voice_agent_speech_output" />
+        android:layout_marginTop="20dp" android:checked="false" android:text="@string/voice_agent_speech_output" />
     <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
         android:text="@string/voice_agent_speech_output_note" android:textSize="13sp" />
     <TextView android:id="@+id/voiceAgentVoiceModelLabel" android:layout_width="match_parent" android:layout_height="wrap_content"

@@ -52,7 +52,7 @@ class VoiceAgentInstrumentedTest {
                 val mode = activity.findViewById<RadioGroup>(R.id.voiceAgentInputMode)
                 val queries = activity.findViewById<EditText>(R.id.voiceAgentTestQueries)
                 val speechOutput = activity.findViewById<SwitchCompat>(R.id.voiceAgentSpeechOutput)
-                assertTrue("Speech output should be enabled by default", speechOutput.isChecked)
+                assertFalse("Speech output should be disabled by default", speechOutput.isChecked)
                 speechOutput.isChecked = false
                 assertFalse(activity.findViewById<Spinner>(R.id.voiceAgentVoiceBackend).isEnabled)
                 assertEquals(R.id.voiceAgentMicInput, mode.checkedRadioButtonId)
@@ -292,7 +292,9 @@ class VoiceAgentInstrumentedTest {
         val context = instrumentation.targetContext
         System.loadLibrary("ailia")
         axip.ailia.Ailia.SetTemporaryCachePath(context.cacheDir.absolutePath)
-        val qnnSpeech = QnnSupport.speechQnnFileName(SpeechModelType.WHISPER_MEDIUM)
+        val speechModelType = InstrumentationRegistry.getArguments().getString("voiceAgentSpeechModel")
+            ?.let { SpeechModelType.valueOf(it) } ?: SpeechModelType.WHISPER_MEDIUM
+        val qnnSpeech = QnnSupport.speechQnnFileName(speechModelType)
         val qnnLlm = QnnSupport.llmQnnFileName(LLMModelType.GEMMA_4_E2B)
         assumeTrue(qnnSpeech != null && qnnLlm != null)
         val directory = ModelDownloader.modelDirectory(context)
@@ -320,7 +322,8 @@ class VoiceAgentInstrumentedTest {
         try {
             instrumentation.runOnMainSync {
                 sample.start(AiliaVoiceAgentSample.Config(cpu.id, true, LLMBackend.QNN, cpu.id,
-                    AiliaVoiceAgentSample.InputMode.SYNTHESIZED_QUERIES, queries, speechOutputEnabled),
+                    AiliaVoiceAgentSample.InputMode.SYNTHESIZED_QUERIES, queries, speechOutputEnabled,
+                    speechModelType = speechModelType),
                     object : AiliaVoiceAgentSample.Listener {
                         override fun onState(state: AiliaVoiceAgentSample.State) {
                             states += state
