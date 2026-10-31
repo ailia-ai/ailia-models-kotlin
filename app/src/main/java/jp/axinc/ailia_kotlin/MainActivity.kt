@@ -3197,7 +3197,17 @@ class MainActivity : AppCompatActivity() {
                                     voiceStatusTextView.text = "Status: Error - $error"
                                 }
                             }
-                        })
+                        }) && run {
+                            // 参照音声は初期化直後に一度だけ設定し、以降のGenerateで再利用する
+                            val refAudio = AudioUtil().loadRawAudio(resources.openRawResource(R.raw.reference_audio_girl))
+                            voiceSample.setReferenceAudio(
+                                refAudio.audioData,
+                                refAudio.channels,
+                                refAudio.sampleRate,
+                                "水をマレーシアから買わなくてはならない。",
+                                "ja",
+                            )
+                        }
                     } else {
                         true
                     }
@@ -3218,18 +3228,9 @@ class MainActivity : AppCompatActivity() {
                         hideModelDownloadProgress()
                     }
 
-                    val refAudio = AudioUtil().loadRawAudio(resources.openRawResource(R.raw.reference_audio_girl))
                     // 入力テキストの日英を判定してG2Pの言語を切り替える
                     val textLang = AiliaVoiceSample.detectLanguage(inputText)
-                    val inferenceTime = voiceSample.textToSpeech(
-                        refAudio.audioData,
-                        refAudio.channels,
-                        refAudio.sampleRate,
-                        "水をマレーシアから買わなくてはならない。",
-                        "ja",
-                        inputText,
-                        textLang,
-                    )
+                    val inferenceTime = voiceSample.synthesizeText(inputText, textLang)
                     runOnUiThreadIfActive {
                         if (!isCurrentOperation(operationId)) return@runOnUiThreadIfActive
                         isInitialized = true
