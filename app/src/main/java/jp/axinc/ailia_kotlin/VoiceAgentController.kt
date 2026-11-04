@@ -63,6 +63,10 @@ class VoiceAgentController(
     private val cameraFacings = listOf(VoiceAgentCamera.Facing.BACK, VoiceAgentCamera.Facing.FRONT)
     private var sessionCameraFacing = VoiceAgentCamera.Facing.BACK
     private val speechOutput: SwitchCompat = activity.findViewById(R.id.voiceAgentSpeechOutput)
+    private val speechOutputNote: TextView = activity.findViewById(R.id.voiceAgentSpeechOutputNote)
+    /** User's choice, restored when switching back from a model that cannot use speech output. */
+    private var speechOutputSelection = false
+    private var updatingSpeechOutput = false
     private val voiceModelLabel: TextView = activity.findViewById(R.id.voiceAgentVoiceModelLabel)
     private val inputMode: RadioGroup = activity.findViewById(R.id.voiceAgentInputMode)
     private val queryPanel: View = activity.findViewById(R.id.voiceAgentQueryPanel)
@@ -129,7 +133,11 @@ class VoiceAgentController(
             queryPanel.visibility = if (checkedId == R.id.voiceAgentTestInput) View.VISIBLE else View.GONE
             updateVoiceControls()
         }
-        speechOutput.setOnCheckedChangeListener { _, _ -> updateVoiceControls() }
+        speechOutputSelection = speechOutput.isChecked
+        speechOutput.setOnCheckedChangeListener { _, checked ->
+            if (!updatingSpeechOutput) speechOutputSelection = checked
+            updateVoiceControls()
+        }
         try {
             Ailia.SetTemporaryCachePath(activity.cacheDir.absolutePath)
             val environments = AiliaModel.getEnvironments().filter { isSelectableAiliaEnvironment(it.name) }
@@ -149,10 +157,13 @@ class VoiceAgentController(
             updateSpeechBackends()
             updateLlmBackends()
             speechModel.onItemSelectedListener = selectionListener { updateSpeechBackends() }
-            llmModel.onItemSelectedListener = selectionListener { updateLlmBackends() }
+            llmModel.onItemSelectedListener = selectionListener {
+                updateLlmBackends()
+                updateSpeechOutputControls()
+            }
             val voiceDefault = voiceEnvironments.indexOfFirst { it.id == cpu[cpuIndex].id }.coerceAtLeast(0)
             configure(voiceBackend, voiceEnvironments.map { it.name }, voiceDefault)
-            updateVoiceControls()
+            updateSpeechOutputControls()
         } catch (e: Exception) {
             showError(e.message ?: "バックエンドの取得に失敗しました")
             start.isEnabled = false
@@ -210,6 +221,18 @@ class VoiceAgentController(
         mtp.alpha = if (supported) 1f else .4f
         mtpNote.setText(if (supported) R.string.voice_agent_mtp_note else R.string.voice_agent_mtp_unavailable)
         updatingMtp = false
+    }
+
+    private fun updateSpeechOutputControls() {
+        val supported = AiliaVoiceAgentSample.isSpeechOutputSupported(llmModels[llmModel.selectedItemPosition])
+        updatingSpeechOutput = true
+        speechOutput.isEnabled = supported
+        speechOutput.isChecked = supported && speechOutputSelection
+        speechOutput.alpha = if (supported) 1f else .4f
+        speechOutputNote.setText(if (supported) R.string.voice_agent_speech_output_note
+            else R.string.voice_agent_speech_output_unavailable)
+        updatingSpeechOutput = false
+        updateVoiceControls()
     }
 
     private fun updateVoiceControls() {

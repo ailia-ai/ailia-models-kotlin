@@ -163,8 +163,10 @@ object QnnSupport {
     private val SPEECH_QNN_MODELS = mapOf(
         SpeechModelType.WHISPER_SMALL to QnnModel("whisper-small", SPEECH_QNN_SOCS),
         SpeechModelType.WHISPER_MEDIUM to QnnModel("whisper-medium", SPEECH_QNN_SOCS),
-        // sm8475はQnnContext_createFromBinaryがQNN_COMMON_ERROR_MEM_ALLOCで、qcs6490はOOMで失敗するため非対応
-        SpeechModelType.WHISPER_LARGE_V3 to QnnModel("whisper-large-v3", SPEECH_QNN_SOCS - "sm8475" - "qcs6490"),
+        // qcs6490はOOMで失敗するため非対応。
+        // sm8475はグラフ常駐ではQnnContext_createFromBinaryがQNN_COMMON_ERROR_MEM_ALLOCで失敗するため、
+        // Graph Switchingを有効にして使用する([isSpeechQnnGraphSwitchingRequired])。
+        SpeechModelType.WHISPER_LARGE_V3 to QnnModel("whisper-large-v3", SPEECH_QNN_SOCS - "qcs6490"),
         SpeechModelType.WHISPER_LARGE_V3_TURBO to QnnModel("whisper-large-v3-turbo", SPEECH_QNN_SOCS),
     )
 
@@ -185,6 +187,17 @@ object QnnSupport {
         val precision = SPEECH_QNN_PRECISIONS[soc] ?: return null
         return "${model.filePrefix}-$soc-$precision.qnn"
     }
+
+    /** Graph Switchingを有効にしないとHTPのメモリに収まらないSpeechモデルとSoCの組み合わせ。 */
+    private val SPEECH_QNN_GRAPH_SWITCHING_REQUIRED = setOf(SpeechModelType.WHISPER_LARGE_V3 to "sm8475")
+
+    /** 指定したSpeechモデルのQNNモデルを開く際にGraph Switchingが必須か。 */
+    fun isSpeechQnnGraphSwitchingRequired(modelType: SpeechModelType): Boolean =
+        isSpeechQnnGraphSwitchingRequired(socName, modelType)
+
+    /** SoC名を引数で受け取る判定本体。 */
+    internal fun isSpeechQnnGraphSwitchingRequired(soc: String?, modelType: SpeechModelType): Boolean =
+        soc != null && (modelType to soc) in SPEECH_QNN_GRAPH_SWITCHING_REQUIRED
 
     /** ailia SDKの環境名がQNNバックエンドかどうかを判定する。 */
     fun isQnnEnvironmentName(name: String): Boolean = name.contains("QNN", ignoreCase = true)

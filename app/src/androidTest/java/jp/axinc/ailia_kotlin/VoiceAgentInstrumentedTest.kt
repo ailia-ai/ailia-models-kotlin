@@ -96,6 +96,43 @@ class VoiceAgentInstrumentedTest {
         }
     }
 
+    @Test fun speechOutputIsUnavailableForE4bAndRestoredForE2b() {
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { it.findViewById<Spinner>(R.id.algorithmSpinner).setSelection(MainActivity.AlgorithmType.VOICE_AGENT.ordinal) }
+            instrumentation.waitForIdleSync()
+            fun selectLlm(name: String) {
+                scenario.onActivity { activity ->
+                    val spinner = activity.findViewById<Spinner>(R.id.voiceAgentLlmModel)
+                    val position = (0 until spinner.count).first { spinner.getItemAtPosition(it).toString().contains(name) }
+                    spinner.setSelection(position)
+                }
+                instrumentation.waitForIdleSync()
+                SystemClock.sleep(200) // Spinner dispatches selection after its next layout pass.
+                instrumentation.waitForIdleSync()
+            }
+            scenario.onActivity { it.findViewById<SwitchCompat>(R.id.voiceAgentSpeechOutput).isChecked = true }
+            selectLlm("E4B")
+            screenshot("voice-agent-e4b-speech-output.png")
+            scenario.onActivity { activity ->
+                val speechOutput = activity.findViewById<SwitchCompat>(R.id.voiceAgentSpeechOutput)
+                assertFalse("E4B must not enable speech output", speechOutput.isEnabled)
+                assertFalse(speechOutput.isChecked)
+                assertFalse("Microphone mode needs no voice backend without speech output",
+                    activity.findViewById<Spinner>(R.id.voiceAgentVoiceBackend).isEnabled)
+                assertEquals(activity.getString(R.string.voice_agent_speech_output_unavailable),
+                    activity.findViewById<TextView>(R.id.voiceAgentSpeechOutputNote).text.toString())
+            }
+            selectLlm("E2B")
+            scenario.onActivity { activity ->
+                val speechOutput = activity.findViewById<SwitchCompat>(R.id.voiceAgentSpeechOutput)
+                assertTrue(speechOutput.isEnabled)
+                assertTrue("The E2B selection must be restored", speechOutput.isChecked)
+                assertEquals(activity.getString(R.string.voice_agent_speech_output_note),
+                    activity.findViewById<TextView>(R.id.voiceAgentSpeechOutputNote).text.toString())
+            }
+        }
+    }
+
     /** Capture a short real microphone buffer and submit it before the silence endpoint can fire. */
     @Test(timeout = 60_000) fun microphoneSendButtonSubmitsWithoutWaitingForVad() {
         assumeTrue("Enable explicitly on a device with cached models", InstrumentationRegistry.getArguments().getString("voiceAgentNative") == "true")
@@ -294,8 +331,10 @@ class VoiceAgentInstrumentedTest {
         axip.ailia.Ailia.SetTemporaryCachePath(context.cacheDir.absolutePath)
         val speechModelType = InstrumentationRegistry.getArguments().getString("voiceAgentSpeechModel")
             ?.let { SpeechModelType.valueOf(it) } ?: SpeechModelType.WHISPER_MEDIUM
+        val llmModelType = InstrumentationRegistry.getArguments().getString("voiceAgentLlmModel")
+            ?.let { LLMModelType.valueOf(it) } ?: LLMModelType.GEMMA_4_E2B
         val qnnSpeech = QnnSupport.speechQnnFileName(speechModelType)
-        val qnnLlm = QnnSupport.llmQnnFileName(LLMModelType.GEMMA_4_E2B)
+        val qnnLlm = QnnSupport.llmQnnFileName(llmModelType)
         assumeTrue(qnnSpeech != null && qnnLlm != null)
         val directory = ModelDownloader.modelDirectory(context)
         assumeTrue(File(directory, qnnSpeech!!).exists() && File(directory, qnnLlm!!).exists())
@@ -312,7 +351,8 @@ class VoiceAgentInstrumentedTest {
         val observingMicrophone = AtomicBoolean(false)
         val microphoneReady = CountDownLatch(1)
         val queries = context.getString(R.string.voice_agent_default_queries).lines()
-        val speechOutputEnabled = InstrumentationRegistry.getArguments().getString("voiceAgentSpeechOutput") != "false"
+        val speechOutputEnabled = AiliaVoiceAgentSample.isSpeechOutputSupported(llmModelType) &&
+            InstrumentationRegistry.getArguments().getString("voiceAgentSpeechOutput") != "false"
         assertEquals("Exercise a second question after the first answer", 2, queries.size)
         instrumentation.uiAutomation.executeShellCommand("pm grant ${context.packageName} android.permission.RECORD_AUDIO").use {
             FileInputStream(it.fileDescriptor).use { stream -> stream.readBytes() }
@@ -323,7 +363,7 @@ class VoiceAgentInstrumentedTest {
             instrumentation.runOnMainSync {
                 sample.start(AiliaVoiceAgentSample.Config(cpu.id, true, LLMBackend.QNN, cpu.id,
                     AiliaVoiceAgentSample.InputMode.SYNTHESIZED_QUERIES, queries, speechOutputEnabled,
-                    speechModelType = speechModelType),
+                    speechModelType = speechModelType, llmModelType = llmModelType),
                     object : AiliaVoiceAgentSample.Listener {
                         override fun onState(state: AiliaVoiceAgentSample.State) {
                             states += state
@@ -350,7 +390,9 @@ class VoiceAgentInstrumentedTest {
             assertTrue("Synthesized query test timed out", completed.await(540, TimeUnit.SECONDS))
             instrumentation.waitForIdleSync()
             val report = File(context.getExternalFilesDir(null), "voice-agent-synthesized-test.json")
-            val result = JSONObject().put("queries", JSONArray(queries)).put("recognized", JSONArray(inputs))
+            val result = JSONObject().put("soc", QnnSupport.socName)
+                    .put("speech_model", speechModelType.name).put("llm_model", llmModelType.name)
+                    .put("queries", JSONArray(queries)).put("recognized", JSONArray(inputs))
                     .put("speech_output_enabled", speechOutputEnabled)
                     .put("answers", JSONArray(answers)).put("states", JSONArray(states.map { it.name }))
                     .put("error", failure ?: JSONObject.NULL)
@@ -429,7 +471,7 @@ class VoiceAgentInstrumentedTest {
                 try {
                     assertTrue(speech.downloadModel())
                     assertTrue(speech.initializeSpeech(cpu.id, liveMode = false))
-                    val turn = speech.createBufferedTurn()
+                    val turn = speech.createVadBufferedTurn()
                     val reference = AudioUtil().loadRawAudio(context.resources.openRawResource(R.raw.reference_audio_girl))
                     val audio = SpeakerVerificationAudio.toMono16k(reference.audioData, reference.channels, reference.sampleRate)
                     val baseRms = voiceAgentAudioRms(audio)

@@ -113,7 +113,14 @@ class QnnSupportTest {
             "whisper-large-v3-sc8380xp-int16.qnn",
             QnnSupport.speechQnnFileName("sc8380xp", SpeechModelType.WHISPER_LARGE_V3),
         )
-        assertNull(QnnSupport.speechQnnFileName("sm8475", SpeechModelType.WHISPER_LARGE_V3))
+        assertEquals(
+            "whisper-large-v3-sm8475-int16.qnn",
+            QnnSupport.speechQnnFileName("sm8475", SpeechModelType.WHISPER_LARGE_V3),
+        )
+        assertTrue(QnnSupport.isSpeechQnnGraphSwitchingRequired("sm8475", SpeechModelType.WHISPER_LARGE_V3))
+        assertFalse(QnnSupport.isSpeechQnnGraphSwitchingRequired("sm7635", SpeechModelType.WHISPER_LARGE_V3))
+        assertFalse(QnnSupport.isSpeechQnnGraphSwitchingRequired("sm8475", SpeechModelType.WHISPER_LARGE_V3_TURBO))
+        assertFalse(QnnSupport.isSpeechQnnGraphSwitchingRequired(null, SpeechModelType.WHISPER_LARGE_V3))
         assertNull(QnnSupport.speechQnnFileName("qcs6490", SpeechModelType.WHISPER_LARGE_V3))
         assertNull(QnnSupport.speechQnnFileName("sm7635", SpeechModelType.WHISPER_TINY))
         assertEquals(

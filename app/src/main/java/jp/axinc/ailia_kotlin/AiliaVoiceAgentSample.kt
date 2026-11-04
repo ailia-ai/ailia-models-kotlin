@@ -39,10 +39,17 @@ class AiliaVoiceAgentSample(context: Context, private val executor: ExecutorServ
         val llmModelType: LLMModelType = LLMModelType.GEMMA_4_E2B,
         val mtpEnabled: Boolean = llmModelType == LLMModelType.GEMMA_4_E2B,
     ) {
+        /** Gemma 4 E4Bと応答合成のGPT-SoVITSを同時に読み込むと8GB端末でメモリが不足するため、E4Bでは応答合成を使わない。 */
+        val speechOutputSupported: Boolean get() = isSpeechOutputSupported(llmModelType)
+
+        /** Gemma 4 E4BではSpeechとLLMのQNNでGraph Switchingを有効にする。 */
+        val qnnGraphSwitching: Boolean get() = llmModelType == LLMModelType.GEMMA_4_E4B
+
         init {
             require(speechModelType in setOf(SpeechModelType.WHISPER_MEDIUM, SpeechModelType.WHISPER_LARGE_V3,
                 SpeechModelType.WHISPER_LARGE_V3_TURBO)) { "Whisper Medium、Large V3またはTurboを選択してください" }
             require(llmModelType in LLMModelType.GEMMA_4_MODELS) { "Gemma 4を選択してください" }
+            require(!speechOutputEnabled || speechOutputSupported) { "Gemma 4 E4Bでは応答の音声合成を使用できません" }
             require(inputMode != InputMode.SYNTHESIZED_QUERIES ||
                 (testQueries.isNotEmpty() && testQueries.all { it.isNotBlank() })) {
                 "テストクエリを1行に1件ずつ入力してください"
@@ -120,7 +127,7 @@ class AiliaVoiceAgentSample(context: Context, private val executor: ExecutorServ
         notifyState(State.LISTENING)
         val gate = VoiceAgentInputGate(
             (player.remainingOutputSettleMs * WavRecorder.SAMPLE_RATE / 1000).toInt())
-        val capture = WavRecorder()
+        val capture = WavRecorder(maxRecordingSeconds = null, retainAudio = false)
         val turn = MicInput(capture)
         micInput = turn
         // Capture can start while a cancelled native call is still finishing. All SDK input
@@ -136,7 +143,7 @@ class AiliaVoiceAgentSample(context: Context, private val executor: ExecutorServ
                 emit(token) { listener?.onWaveform(input) }
                 enqueue(token) {
                     if (!turn.submitted.get() && models.pushSpeech(input, 1, sampleRate)) {
-                        Log.d("VoiceAgent", "Speech Buffered: finalize microphone turn")
+                        Log.d("VoiceAgent", "Speech VadBuffered: finalize microphone turn")
                         finishMicrophoneTurn(token, turn)
                     }
                 }
@@ -145,7 +152,7 @@ class AiliaVoiceAgentSample(context: Context, private val executor: ExecutorServ
                 file.delete()
                 if (generation.get() != token) return
                 emit(token) { if (!turn.submitted.get()) notifyState(State.SUBMITTING) }
-                // Also finalizes manual sends / the 30-second recording limit. The submitted
+                // Also finalizes manual sends. Recording is unlimited; VadBuffered ends turns at utterance boundaries. The submitted
                 // guard prevents late recorder callbacks from finalizing the same turn twice.
                 enqueue(token) { finishMicrophoneTurn(token, turn) }
             }
@@ -214,6 +221,7 @@ class AiliaVoiceAgentSample(context: Context, private val executor: ExecutorServ
     }
 
     companion object {
+        fun isSpeechOutputSupported(llmModelType: LLMModelType) = llmModelType != LLMModelType.GEMMA_4_E4B
         val INTERRUPTIBLE_STATES = setOf(State.SUBMITTING, State.RECOGNIZING, State.THINKING,
             State.SYNTHESIZING, State.SPEAKING, State.SYNTHESIZING_QUERY, State.WAITING_QUERY, State.PLAYING_QUERY)
     }

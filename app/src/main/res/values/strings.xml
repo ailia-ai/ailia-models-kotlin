@@ -6,6 +6,7 @@
     <string name="voice_agent_llm_backend">テキスト生成のバックエンド</string>
     <string name="voice_agent_voice_backend">音声合成のバックエンド</string>
     <string name="voice_agent_speech_output">応答の音声合成</string>
+    <string name="voice_agent_speech_output_unavailable">Gemma 4 E4BではGemmaとGPT-SoVITSを同時に読み込むとメモリが不足するため、応答の音声合成は使用できません。テスト用クエリの合成・再生は行います。</string>
     <string name="voice_agent_speech_output_note">オフにすると応答をテキストのみで表示します。テスト用クエリの合成・再生は引き続き行います。</string>
     <string name="voice_agent_title">Voice Agent</string>
     <string name="voice_agent_tools">使えるツール</string>
