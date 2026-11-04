@@ -264,7 +264,7 @@ class AiliaSpeechSample(private val modelDirectory: File) {
         return try {
             val qnnFileName = qnnFileNameOrNull()
             if (useQnn && qnnFileName == null) {
-                throw IllegalStateException("QNN model is not available for ${currentModelType.displayName} on ${QnnSupport.socName}")
+                throw IllegalStateException("QNN model is not available for ${currentModelType.displayName} on ${QnnSupport.speechSocName}")
             }
             // .qnnはencoder/decoderの両方を含むため、両方に同じファイルを渡す
             val encoderPath = File(modelDirectory, qnnFileName ?: currentModelType.encoderFileName).absolutePath

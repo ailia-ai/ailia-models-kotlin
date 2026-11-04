@@ -990,7 +990,7 @@ class MainActivity : AppCompatActivity() {
         }
         val qnnAvailable = QnnSupport.speechQnnFileName(selectedSpeechModelType) != null
         val items = environments.map { "${it.name} (id:${it.id})" }.toMutableList()
-        if (qnnAvailable) items.add("QNN ${QnnSupport.socName}")
+        if (qnnAvailable) items.add("QNN ${QnnSupport.speechSocName}")
         val qnnPosition = if (qnnAvailable) items.size - 1 else -1
         // QNN版のないモデルではBLAS(なければCPU)で実行する。VADと話者分離もこの環境で動かす
         val cpuIndex = if (environments.isEmpty()) -1 else preferredBlasThenCpuEnvironmentIndex(environments.map { it.type })

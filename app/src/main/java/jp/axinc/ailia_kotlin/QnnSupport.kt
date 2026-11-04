@@ -2,12 +2,15 @@ package jp.axinc.ailia_kotlin
 
 import android.util.Log
 import axip.ailia_llm.AiliaLLM
+import axip.ailia_speech.AiliaSpeech
 
 /**
  * 端末のSoCに対するQNN(Qualcomm AI Engine Direct)の対応状況をまとめたヘルパ。
  *
- * SoC名はailia LLMの ailiaLLMGetQNNModelName API から取得する(例: "sm8475")。
- * ailia SDKのQNN環境の可否と、ailia LLMのQNNモデルの選択可否の両方でこの名前を使う。
+ * LLM用のSoC名はailia LLMの ailiaLLMGetQNNModelName API から、
+ * Speech用のSoC名はailia Speechの ailiaSpeechGetQNNModelName API から取得する(例: "sm8475")。
+ * ailia SDKのQNN環境の可否とailia LLMのQNNモデルの選択可否はLLM側の名前、
+ * ailia SpeechのQNNモデルの選択可否はSpeech側の名前を使う。
  */
 object QnnSupport {
     private const val TAG = "QnnSupport"
@@ -88,15 +91,19 @@ object QnnSupport {
     var modelFormat: QnnModelFormat = QnnModelFormat.V1_5_1
 
     /** ailia LLMのAPIで取得したSoC名(例: "sm8475")。QNNを利用できない端末ではnull。 */
-    val socName: String? by lazy {
-        runCatching { AiliaLLM.getQNNModelName() }
-            .onFailure { Log.i(TAG, "QNN model name is not available: ${it.message}") }
+    val socName: String? by lazy { normalizeSocName("LLM") { AiliaLLM.getQNNModelName() } }
+
+    /** ailia SpeechのAPIで取得したSoC名(例: "sm8475")。QNNを利用できない端末ではnull。 */
+    val speechSocName: String? by lazy { normalizeSocName("Speech") { AiliaSpeech.getQNNModelName() } }
+
+    private fun normalizeSocName(label: String, query: () -> String?): String? =
+        runCatching(query)
+            .onFailure { Log.i(TAG, "$label QNN model name is not available: ${it.message}") }
             .getOrNull()
             ?.trim()
             ?.lowercase()
             ?.takeIf { it.isNotEmpty() }
-            ?.also { Log.i(TAG, "QNN SoC name: $it") }
-    }
+            ?.also { Log.i(TAG, "$label QNN SoC name: $it") }
 
     /**
      * SoCのNPUがFP16に対応するか。
@@ -177,7 +184,7 @@ object QnnSupport {
     private val SPEECH_QNN_PRECISIONS = SPEECH_QNN_SOCS.associateWith { "int16" }
 
     /** 指定したSpeechモデルのQNNモデルファイル名。この端末向けのモデルがなければnull。 */
-    fun speechQnnFileName(modelType: SpeechModelType): String? = speechQnnFileName(socName, modelType)
+    fun speechQnnFileName(modelType: SpeechModelType): String? = speechQnnFileName(speechSocName, modelType)
 
     /** SoC名を引数で受け取るSpeech用ファイル名生成本体。 */
     internal fun speechQnnFileName(soc: String?, modelType: SpeechModelType): String? {
@@ -193,7 +200,7 @@ object QnnSupport {
 
     /** 指定したSpeechモデルのQNNモデルを開く際にGraph Switchingが必須か。 */
     fun isSpeechQnnGraphSwitchingRequired(modelType: SpeechModelType): Boolean =
-        isSpeechQnnGraphSwitchingRequired(socName, modelType)
+        isSpeechQnnGraphSwitchingRequired(speechSocName, modelType)
 
     /** SoC名を引数で受け取る判定本体。 */
     internal fun isSpeechQnnGraphSwitchingRequired(soc: String?, modelType: SpeechModelType): Boolean =

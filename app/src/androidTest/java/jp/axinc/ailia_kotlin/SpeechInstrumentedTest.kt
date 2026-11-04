@@ -286,7 +286,7 @@ class SpeechInstrumentedTest {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         System.loadLibrary("ailia")
         axip.ailia.Ailia.SetTemporaryCachePath(context.cacheDir.absolutePath)
-        if (qnn) assertNotNull("QNN model should exist for ${QnnSupport.socName}", QnnSupport.speechQnnFileName(modelType))
+        if (qnn) assertNotNull("QNN model should exist for ${QnnSupport.speechSocName}", QnnSupport.speechQnnFileName(modelType))
         val cpu = axip.ailia.AiliaModel.getEnvironments().first {
             it.type == axip.ailia.AiliaEnvironment.TYPE_CPU && !QnnSupport.isQnnEnvironmentName(it.name)
         }
@@ -304,10 +304,10 @@ class SpeechInstrumentedTest {
             val start = System.nanoTime()
             val result = sample.process(audio.audioData, audio.channels, audio.sampleRate)
             val elapsed = (System.nanoTime() - start) / 1_000_000
-            Log.i(TAG, "${modelType.displayName} qnn=$qnn soc=${QnnSupport.socName} init=${initMs}ms inference=${elapsed}ms result=$result")
+            Log.i(TAG, "${modelType.displayName} qnn=$qnn soc=${QnnSupport.speechSocName} init=${initMs}ms inference=${elapsed}ms result=$result")
             File(ModelDownloader.modelDirectory(context), "whisper-${modelType.name}-${if (qnn) "qnn" else "cpu"}.json").writeText(
                 org.json.JSONObject().put("model", modelType.displayName).put("qnn", qnn)
-                    .put("soc", QnnSupport.socName).put("initMs", initMs).put("inferenceMs", elapsed)
+                    .put("soc", QnnSupport.speechSocName).put("initMs", initMs).put("inferenceMs", elapsed)
                     .put("result", org.json.JSONArray(result)).toString(2)
             )
             assertTrue("${modelType.displayName} result should not be empty", result.isNotEmpty())

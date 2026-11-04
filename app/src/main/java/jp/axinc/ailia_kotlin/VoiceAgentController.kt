@@ -185,7 +185,7 @@ class VoiceAgentController(
     private fun updateSpeechBackends() {
         val previous = speechEnvironments.getOrNull(speechBackend.selectedItemPosition)
         val qnn = if (QnnSupport.speechQnnFileName(speechModels[speechModel.selectedItemPosition]) != null)
-            Environment("QNN (NPU) ${QnnSupport.socName}", defaultSpeechEnvironment.id, true) else null
+            Environment("QNN (NPU) ${QnnSupport.speechSocName}", defaultSpeechEnvironment.id, true) else null
         speechEnvironments = cpuSpeechEnvironments + listOfNotNull(qnn)
         val preferred = previous ?: qnn ?: defaultSpeechEnvironment
         val selection = speechEnvironments.indexOf(preferred).takeIf { it >= 0 }
