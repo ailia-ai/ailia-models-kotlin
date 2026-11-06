@@ -25,7 +25,12 @@ object SharedLLM {
         val nCtx: Int,
         val mtpPath: String?,
         val projectorPath: String?,
-    )
+        val backend: LLMBackend,
+    ) {
+        /** sm8475ではmmprojを開く場合にGraph Switchingが必要([QnnSupport.isLlmQnnGraphSwitchingRequired])。 */
+        val qnnGraphSwitching: Boolean
+            get() = backend == LLMBackend.QNN && QnnSupport.isLlmQnnGraphSwitchingRequired(projectorPath != null)
+    }
 
     private var llm: AiliaLLM? = null
     private var config: Config? = null
@@ -65,6 +70,11 @@ object SharedLLM {
         release()
         val model = AiliaLLM()
         try {
+            // Graph SwitchingはopenModelFileより前に設定する
+            if (config.qnnGraphSwitching) {
+                Log.i(TAG, "Enabling QNN graph switching")
+                model.setQNNGraphSwitching(true)
+            }
             Log.i(TAG, "Opening model file: ${config.modelPath}")
             model.openModelFile(config.modelPath, config.nCtx)
             // Assistantは本体の後、mmprojと最初のプロンプトより前に開く

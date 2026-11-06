@@ -104,6 +104,14 @@ class QnnSupportTest {
     }
 
     @Test
+    fun `sm8475 requires LLM graph switching only when mmproj is opened`() {
+        assertTrue(QnnSupport.isLlmQnnGraphSwitchingRequired("sm8475", withProjector = true))
+        assertFalse(QnnSupport.isLlmQnnGraphSwitchingRequired("sm8475", withProjector = false))
+        assertFalse(QnnSupport.isLlmQnnGraphSwitchingRequired("sm7635", withProjector = true))
+        assertFalse(QnnSupport.isLlmQnnGraphSwitchingRequired(null, withProjector = true))
+    }
+
+    @Test
     fun `Whisper Small, Medium, Large V3 and Large V3 Turbo run on QNN`() {
         assertEquals(
             "whisper-small-sm7635-int16.qnn",

@@ -128,6 +128,20 @@ object QnnSupport {
     /** QNNモデルのファイルの種類。 */
     internal enum class QnnLlmFile { MODEL, MMPROJ, MTP_ASSISTANT }
 
+    /** mmproj(VLM/ALM)を開く場合にLLMのGraph Switchingを有効にする必要があるSoC。 */
+    private val LLM_QNN_MMPROJ_GRAPH_SWITCHING_REQUIRED_SOCS = setOf("sm8475")
+
+    /**
+     * QNNのLLMを開く際にGraph Switchingが必須か。openModelFileより前に設定する必要があるため、
+     * 実際に画像・音声を入力するかではなく、mmprojを開くかどうかで判定する。
+     */
+    fun isLlmQnnGraphSwitchingRequired(withProjector: Boolean): Boolean =
+        isLlmQnnGraphSwitchingRequired(socName, withProjector)
+
+    /** SoC名を引数で受け取る判定本体。 */
+    internal fun isLlmQnnGraphSwitchingRequired(soc: String?, withProjector: Boolean): Boolean =
+        withProjector && soc in LLM_QNN_MMPROJ_GRAPH_SWITCHING_REQUIRED_SOCS
+
     /** SoC名を引数で受け取る判定本体(端末を用意せずテストできるようにするため)。 */
     internal fun isFp16SupportedSoc(soc: String?): Boolean =
         soc?.let { it !in FP16_UNSUPPORTED_SOCS } ?: true

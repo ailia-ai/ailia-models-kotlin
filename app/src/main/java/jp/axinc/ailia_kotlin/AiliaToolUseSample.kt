@@ -175,6 +175,7 @@ class AiliaToolUseSample {
                     nCtx = if (qnnFileName != null) N_CTX_QNN else N_CTX,
                     mtpPath = mtpFile?.absolutePath,
                     projectorPath = projectorFile?.absolutePath,
+                    backend = backend,
                 )
             )
             isMtpActive = SharedLLM.isMtpActive

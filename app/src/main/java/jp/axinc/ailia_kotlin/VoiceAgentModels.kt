@@ -145,8 +145,10 @@ internal class VoiceAgentModels(private val context: Context) {
         var partialReply = ""
         val photos = mutableListOf<JSONObject>()
         try {
-            // Graph SwitchingはopenModelFileより前に設定する。QNN以外では有効化できないためQNN時のみ設定する
-            if (config.qnnGraphSwitching && config.llmBackend == LLMBackend.QNN) {
+            // Graph SwitchingはopenModelFileより前に設定する。QNN以外では有効化できないためQNN時のみ設定する。
+            // カメラのツール用にmmprojを常に開くため、sm8475ではE2BでもGraph Switchingが必要
+            if (config.llmBackend == LLMBackend.QNN &&
+                (config.qnnGraphSwitching || QnnSupport.isLlmQnnGraphSwitchingRequired(withProjector = true))) {
                 Log.i("VoiceAgent", "Enabling LLM QNN graph switching")
                 model.setQNNGraphSwitching(true)
             }

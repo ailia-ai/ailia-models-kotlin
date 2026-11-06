@@ -179,6 +179,7 @@ class AiliaMultimodalLLMSample(
                     nCtx = if (useQnn) N_CTX_QNN else N_CTX,
                     mtpPath = mtpFile?.absolutePath,
                     projectorPath = projectorPath!!,
+                    backend = backend,
                 )
             )
             isMtpActive = SharedLLM.isMtpActive
