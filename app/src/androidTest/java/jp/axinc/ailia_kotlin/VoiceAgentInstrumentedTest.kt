@@ -346,6 +346,11 @@ class VoiceAgentInstrumentedTest {
         val states = CopyOnWriteArrayList<AiliaVoiceAgentSample.State>()
         val inputs = CopyOnWriteArrayList<String>()
         val answers = CopyOnWriteArrayList<String>()
+        val speechDuringGeneration = CopyOnWriteArrayList<Boolean>()
+        // Measured from THINKING on the main thread: time to the first audio vs. to the final answer.
+        val firstAudioMs = CopyOnWriteArrayList<Long>()
+        val generationMs = CopyOnWriteArrayList<Long>()
+        var thinkingAt = 0L
         val completed = CountDownLatch(1)
         val stopped = CountDownLatch(1)
         val observingMicrophone = AtomicBoolean(false)
@@ -367,15 +372,23 @@ class VoiceAgentInstrumentedTest {
                     object : AiliaVoiceAgentSample.Listener {
                         override fun onState(state: AiliaVoiceAgentSample.State) {
                             states += state
-                            if (state == AiliaVoiceAgentSample.State.SPEAKING ||
-                                (!speechOutputEnabled && latestOutput.isNotBlank() &&
-                                    state in setOf(AiliaVoiceAgentSample.State.SYNTHESIZING_QUERY, AiliaVoiceAgentSample.State.TEST_COMPLETE))) {
+                            if (state == AiliaVoiceAgentSample.State.THINKING) thinkingAt = SystemClock.elapsedRealtime()
+                            // Playback may start mid-generation, before onOutput() delivers the final answer.
+                            if (state == AiliaVoiceAgentSample.State.SPEAKING) {
+                                speechDuringGeneration += latestOutput.isEmpty()
+                                firstAudioMs += SystemClock.elapsedRealtime() - thinkingAt
+                            }
+                            if (latestOutput.isNotBlank() &&
+                                state in setOf(AiliaVoiceAgentSample.State.SYNTHESIZING_QUERY, AiliaVoiceAgentSample.State.TEST_COMPLETE)) {
                                 answers += latestOutput
                             }
                             if (state == AiliaVoiceAgentSample.State.TEST_COMPLETE) completed.countDown()
                         }
                         override fun onInput(text: String) { inputs += text }
-                        override fun onOutput(text: String) { latestOutput = text }
+                        override fun onOutput(text: String) {
+                            latestOutput = text
+                            if (text.isNotEmpty()) generationMs += SystemClock.elapsedRealtime() - thinkingAt
+                        }
                         override fun onWaveform(samples: FloatArray) {
                             if (observingMicrophone.get()) microphoneReady.countDown()
                         }
@@ -395,6 +408,8 @@ class VoiceAgentInstrumentedTest {
                     .put("queries", JSONArray(queries)).put("recognized", JSONArray(inputs))
                     .put("speech_output_enabled", speechOutputEnabled)
                     .put("answers", JSONArray(answers)).put("states", JSONArray(states.map { it.name }))
+                    .put("speech_during_generation", JSONArray(speechDuringGeneration))
+                    .put("first_audio_ms", JSONArray(firstAudioMs)).put("generation_ms", JSONArray(generationMs))
                     .put("error", failure ?: JSONObject.NULL)
             report.writeText(result.toString(2))
             assertNull("Voice agent failed", failure)
@@ -409,10 +424,17 @@ class VoiceAgentInstrumentedTest {
             val turn = listOf(AiliaVoiceAgentSample.State.SYNTHESIZING_QUERY, AiliaVoiceAgentSample.State.WAITING_QUERY,
                 AiliaVoiceAgentSample.State.PLAYING_QUERY, AiliaVoiceAgentSample.State.SUBMITTING,
                 AiliaVoiceAgentSample.State.RECOGNIZING, AiliaVoiceAgentSample.State.THINKING) +
-                if (speechOutputEnabled) listOf(AiliaVoiceAgentSample.State.SYNTHESIZING, AiliaVoiceAgentSample.State.SPEAKING)
-                else emptyList()
+                if (speechOutputEnabled) listOf(AiliaVoiceAgentSample.State.SPEAKING) else emptyList()
+            // SYNTHESIZING appears only when generation finishes before the first clip is played.
             assertEquals(listOf(AiliaVoiceAgentSample.State.PREPARING) + turn + turn +
-                AiliaVoiceAgentSample.State.TEST_COMPLETE, states.toList())
+                AiliaVoiceAgentSample.State.TEST_COMPLETE,
+                states.filter { it != AiliaVoiceAgentSample.State.SYNTHESIZING })
+            for ((index, state) in states.withIndex()) {
+                if (state == AiliaVoiceAgentSample.State.SYNTHESIZING) {
+                    assertEquals(AiliaVoiceAgentSample.State.THINKING, states[index - 1])
+                    assertEquals(AiliaVoiceAgentSample.State.SPEAKING, states[index + 1])
+                }
+            }
 
             // Normal turn completion must also survive the speaker-to-real-microphone handover.
             val baseline = states.size

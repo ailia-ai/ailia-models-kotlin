@@ -4,6 +4,7 @@ import org.junit.Assert.*
 import org.junit.Test
 import java.util.concurrent.CancellationException
 import java.util.concurrent.CountDownLatch
+import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
@@ -99,6 +100,37 @@ class VoiceAgentSpeechQueueTest {
         assertTrue(error.get() is CancellationException)
         assertTrue(playbackExited.get())
         assertEquals(listOf("1。"), played)
+    }
+
+    @Test(timeout = 5000) fun streamingSpeechPlaysPhrasesBeforeGenerationFinishes() {
+        val played = LinkedBlockingQueue<String>()
+        VoiceAgentStreamingSpeech<String>({}, { action -> action { it } }, { text, _ -> played.add(text) }).use {
+            it.update("最初の文です。次", false)
+            assertEquals("最初の文です。", played.poll(2, TimeUnit.SECONDS))
+            it.update("最初の文です。次の文です。終", false)
+            assertEquals("次の文です。", played.poll(2, TimeUnit.SECONDS))
+            it.update("最初の文です。次の文です。終わり", true)
+            it.finish()
+        }
+        assertEquals(listOf("終わり"), played.toList())
+    }
+
+    @Test(timeout = 5000) fun closingStreamingSpeechStopsPlaybackStartedDuringGeneration() {
+        val playbackStarted = CountDownLatch(1)
+        val playbackExited = AtomicBoolean(false)
+        val played = LinkedBlockingQueue<String>()
+        val speech = VoiceAgentStreamingSpeech<String>({}, { action -> action { it } }) { text, checkActive ->
+            played.add(text)
+            playbackStarted.countDown()
+            try { while (true) { checkActive(); Thread.sleep(5) } }
+            finally { playbackExited.set(true) }
+        }
+        // Generation fails after two phrases were queued: the clip being played stops, the next is dropped.
+        speech.update("一つ目。二つ目。三", false)
+        assertTrue(playbackStarted.await(2, TimeUnit.SECONDS))
+        speech.close()
+        assertTrue(playbackExited.get())
+        assertEquals(listOf("一つ目。"), played.toList())
     }
 
     @Test(timeout = 5000) fun playbackFailureReachesProducerInsteadOfLeavingItBlocked() {

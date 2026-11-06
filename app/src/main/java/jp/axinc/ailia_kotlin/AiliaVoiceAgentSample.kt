@@ -295,7 +295,10 @@ class AiliaVoiceAgentSample(context: Context, private val executor: ExecutorServ
         }
         emit(token) { listener?.onInput(input); listener?.onOutput("") }
         state(token, State.THINKING)
-        var firstPlayback = true
+        // Playback starts mid-generation. The first clip or generation completion, whichever comes
+        // first, picks SPEAKING or SYNTHESIZING; one lock keeps the posted states in that order.
+        val speakingLock = Any()
+        var speaking = false
         val speech = if (speechOutputEnabled) VoiceAgentStreamingSpeech<AudioUtil.WavFileData>(
             checkActive = { ensureActive(token) },
             withSynthesis = { action ->
@@ -307,9 +310,11 @@ class AiliaVoiceAgentSample(context: Context, private val executor: ExecutorServ
                 }
             },
             play = { audio, checkActive ->
-                if (firstPlayback) {
-                    state(token, State.SPEAKING)
-                    firstPlayback = false
+                synchronized(speakingLock) {
+                    if (!speaking) {
+                        state(token, State.SPEAKING)
+                        speaking = true
+                    }
                 }
                 Log.d("VoiceAgent", "Playing streamed segment")
                 play(token, audio, checkActive)
@@ -335,7 +340,7 @@ class AiliaVoiceAgentSample(context: Context, private val executor: ExecutorServ
             emit(token) { listener?.onOutput(response) }
             if (speech != null) {
                 Log.d("VoiceAgent", "Generation complete; draining streamed speech")
-                state(token, State.SYNTHESIZING)
+                synchronized(speakingLock) { if (!speaking) state(token, State.SYNTHESIZING) }
                 speech.finish()
             }
         } finally {
