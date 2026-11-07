@@ -3,6 +3,7 @@ package jp.axinc.ailia_kotlin
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
+import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.BitmapFactory.Options
@@ -178,6 +179,7 @@ class MainActivity : AppCompatActivity() {
     private val activityDestroyed = AtomicBoolean(false)
 
     private var imageAnalyzer: ImageAnalysis? = null
+    private var cameraPreview: Preview? = null
     private var camera: Camera? = null
     private var latestCameraBitmap: Bitmap? = null
 
@@ -542,7 +544,7 @@ class MainActivity : AppCompatActivity() {
      * 画像/カメラの表示領域を画面サイズに合わせて調整する。
      * 横画面でも高さが画面内に収まるよう、正方形の一辺を
      * 「画面幅(マージン込み)」と「画面高さの60%」の小さい方にする。
-     * 画面回転時はActivityが再生成されるためonCreateで再計算される。
+     * 画面回転時はActivityを作り直さないため、onConfigurationChangedで再計算する。
      */
     private fun adjustContentSizeForScreen() {
         val dm = resources.displayMetrics
@@ -2166,6 +2168,9 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    /** チャット吹き出しの最大幅(画面幅の75%)。 */
+    private fun chatBubbleMaxWidth(): Int = (resources.displayMetrics.widthPixels * 0.75f).toInt()
+
     /** チャット吹き出しを追加する(ユーザー右寄せ/AI左寄せ) */
     private fun addChatBubble(message: String, isUser: Boolean): TextView {
         val bubble = TextView(this)
@@ -2175,7 +2180,7 @@ class MainActivity : AppCompatActivity() {
         bubble.setBackgroundResource(if (isUser) R.drawable.chat_bubble_user else R.drawable.chat_bubble_assistant)
         val pad = (10 * resources.displayMetrics.density).toInt()
         bubble.setPadding(pad, pad, pad, pad)
-        bubble.maxWidth = (resources.displayMetrics.widthPixels * 0.75f).toInt()
+        bubble.maxWidth = chatBubbleMaxWidth()
         val params = LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.WRAP_CONTENT,
             LinearLayout.LayoutParams.WRAP_CONTENT
@@ -4783,6 +4788,7 @@ class MainActivity : AppCompatActivity() {
             val preview = Preview.Builder().build().also {
                 it.setSurfaceProvider(cameraPreviewView.surfaceProvider)
             }
+            cameraPreview = preview
 
             imageAnalyzer = ImageAnalysis.Builder()
                 .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
@@ -4814,6 +4820,7 @@ class MainActivity : AppCompatActivity() {
                 cameraProvider.unbindAll()
                 camera = null
                 imageAnalyzer = null
+                cameraPreview = null
             }, ContextCompat.getMainExecutor(this))
         } catch (e: Exception) {
             Log.e("AILIA_Error", "Error stopping camera: ${e.message}")
@@ -4977,6 +4984,25 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         }
+    }
+
+    /**
+     * 回転や画面サイズの変更ではActivityを作り直さない(マニフェストのconfigChanges)。
+     * 作り直すとモデル・会話・Voice Agentのセッションがすべて初期化されるため、
+     * 画面サイズに依存する表示とカメラの向きだけをここで更新する。
+     */
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        adjustContentSizeForScreen()
+        val bubbleMaxWidth = chatBubbleMaxWidth()
+        for (i in 0 until llmChatContainer.childCount) {
+            (llmChatContainer.getChildAt(i) as? TextView)?.maxWidth = bubbleMaxWidth
+        }
+        // カメラ画像はrotationDegreesで回転するため、ユースケースの向きを今の画面に合わせる
+        @Suppress("DEPRECATION")
+        val rotation = windowManager.defaultDisplay.rotation
+        cameraPreview?.targetRotation = rotation
+        imageAnalyzer?.targetRotation = rotation
     }
 
     override fun onStop() {
