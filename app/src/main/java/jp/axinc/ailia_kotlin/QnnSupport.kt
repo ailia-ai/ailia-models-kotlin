@@ -2,12 +2,15 @@ package jp.axinc.ailia_kotlin
 
 import android.util.Log
 import axip.ailia_llm.AiliaLLM
+import axip.ailia_speech.AiliaSpeech
 
 /**
  * 端末のSoCに対するQNN(Qualcomm AI Engine Direct)の対応状況をまとめたヘルパ。
  *
- * SoC名はailia LLMの ailiaLLMGetQNNModelName API から取得する(例: "sm8475")。
- * ailia SDKのQNN環境の可否と、ailia LLMのQNNモデルの選択可否の両方でこの名前を使う。
+ * LLM用のSoC名はailia LLMの ailiaLLMGetQNNModelName API から、
+ * Speech用のSoC名はailia Speechの ailiaSpeechGetQNNModelName API から取得する(例: "sm8475")。
+ * ailia SDKのQNN環境の可否とailia LLMのQNNモデルの選択可否はLLM側の名前、
+ * ailia SpeechのQNNモデルの選択可否はSpeech側の名前を使う。
  */
 object QnnSupport {
     private const val TAG = "QnnSupport"
@@ -88,15 +91,19 @@ object QnnSupport {
     var modelFormat: QnnModelFormat = QnnModelFormat.V1_5_1
 
     /** ailia LLMのAPIで取得したSoC名(例: "sm8475")。QNNを利用できない端末ではnull。 */
-    val socName: String? by lazy {
-        runCatching { AiliaLLM.getQNNModelName() }
-            .onFailure { Log.i(TAG, "QNN model name is not available: ${it.message}") }
+    val socName: String? by lazy { normalizeSocName("LLM") { AiliaLLM.getQNNModelName() } }
+
+    /** ailia SpeechのAPIで取得したSoC名(例: "sm8475")。QNNを利用できない端末ではnull。 */
+    val speechSocName: String? by lazy { normalizeSocName("Speech") { AiliaSpeech.getQNNModelName() } }
+
+    private fun normalizeSocName(label: String, query: () -> String?): String? =
+        runCatching(query)
+            .onFailure { Log.i(TAG, "$label QNN model name is not available: ${it.message}") }
             .getOrNull()
             ?.trim()
             ?.lowercase()
             ?.takeIf { it.isNotEmpty() }
-            ?.also { Log.i(TAG, "QNN SoC name: $it") }
-    }
+            ?.also { Log.i(TAG, "$label QNN SoC name: $it") }
 
     /**
      * SoCのNPUがFP16に対応するか。
@@ -120,6 +127,42 @@ object QnnSupport {
 
     /** QNNモデルのファイルの種類。 */
     internal enum class QnnLlmFile { MODEL, MMPROJ, MTP_ASSISTANT }
+
+    /**
+     * 画像・音声を入力する画面(VLM/ALM)で、LLMのGraph Switchingを既定で有効にするSoC。
+     * sm8475はLLMとmmprojのグラフを同時に常駐させるとHTPのメモリに収まらない。
+     */
+    private val LLM_QNN_MEDIA_GRAPH_SWITCHING_SOCS = setOf("sm8475")
+
+    /**
+     * LLM系の画面でQNNのGraph Switchingを既定で有効にするか。画面ごとのスイッチの初期値に使う。
+     * [mediaInput]は画像・音声を入力する画面(VLM/ALM)。LLM / Tool Useは文字だけを扱うため、
+     * グラフを常駐させて最初の応答を速くする(mmprojのグラフは使うまで読み込まれない)。
+     */
+    fun defaultLlmQnnGraphSwitching(mediaInput: Boolean): Boolean =
+        defaultLlmQnnGraphSwitching(socName, mediaInput)
+
+    /** SoC名を引数で受け取る判定本体。 */
+    internal fun defaultLlmQnnGraphSwitching(soc: String?, mediaInput: Boolean): Boolean =
+        mediaInput && soc in LLM_QNN_MEDIA_GRAPH_SWITCHING_SOCS
+
+    /**
+     * Voice AgentでGraph Switchingを既定で有効にするSoC。
+     * sm8475ではWhisperとGemma 4 E2B(mmprojを常に開く)を同じプロセスで使うと、
+     * グラフ常駐ではLLMのコンテキストをHTPに割り当てられないことがある。
+     */
+    private val VOICE_AGENT_QNN_GRAPH_SWITCHING_SOCS = setOf("sm8475")
+
+    /**
+     * Voice AgentでWhisperとLLMのQNNのGraph Switchingを既定で有効にするか。設定画面のスイッチの初期値に使う。
+     * Gemma 4 E4BはWhisperと合わせるとメモリが不足するため、どの端末でも有効にする。
+     */
+    fun defaultVoiceAgentQnnGraphSwitching(llmModelType: LLMModelType): Boolean =
+        defaultVoiceAgentQnnGraphSwitching(socName, llmModelType)
+
+    /** SoC名を引数で受け取る判定本体。 */
+    internal fun defaultVoiceAgentQnnGraphSwitching(soc: String?, llmModelType: LLMModelType): Boolean =
+        llmModelType == LLMModelType.GEMMA_4_E4B || soc in VOICE_AGENT_QNN_GRAPH_SWITCHING_SOCS
 
     /** SoC名を引数で受け取る判定本体(端末を用意せずテストできるようにするため)。 */
     internal fun isFp16SupportedSoc(soc: String?): Boolean =
@@ -163,8 +206,10 @@ object QnnSupport {
     private val SPEECH_QNN_MODELS = mapOf(
         SpeechModelType.WHISPER_SMALL to QnnModel("whisper-small", SPEECH_QNN_SOCS),
         SpeechModelType.WHISPER_MEDIUM to QnnModel("whisper-medium", SPEECH_QNN_SOCS),
-        // sm8475はQnnContext_createFromBinaryがQNN_COMMON_ERROR_MEM_ALLOCで、qcs6490はOOMで失敗するため非対応
-        SpeechModelType.WHISPER_LARGE_V3 to QnnModel("whisper-large-v3", SPEECH_QNN_SOCS - "sm8475" - "qcs6490"),
+        // qcs6490はOOMで失敗するため非対応。
+        // sm8475はグラフ常駐ではQnnContext_createFromBinaryがQNN_COMMON_ERROR_MEM_ALLOCで失敗するため、
+        // Graph Switchingを既定で有効にする([defaultSpeechQnnGraphSwitching])。
+        SpeechModelType.WHISPER_LARGE_V3 to QnnModel("whisper-large-v3", SPEECH_QNN_SOCS - "qcs6490"),
         SpeechModelType.WHISPER_LARGE_V3_TURBO to QnnModel("whisper-large-v3-turbo", SPEECH_QNN_SOCS),
     )
 
@@ -175,7 +220,7 @@ object QnnSupport {
     private val SPEECH_QNN_PRECISIONS = SPEECH_QNN_SOCS.associateWith { "int16" }
 
     /** 指定したSpeechモデルのQNNモデルファイル名。この端末向けのモデルがなければnull。 */
-    fun speechQnnFileName(modelType: SpeechModelType): String? = speechQnnFileName(socName, modelType)
+    fun speechQnnFileName(modelType: SpeechModelType): String? = speechQnnFileName(speechSocName, modelType)
 
     /** SoC名を引数で受け取るSpeech用ファイル名生成本体。 */
     internal fun speechQnnFileName(soc: String?, modelType: SpeechModelType): String? {
@@ -185,6 +230,17 @@ object QnnSupport {
         val precision = SPEECH_QNN_PRECISIONS[soc] ?: return null
         return "${model.filePrefix}-$soc-$precision.qnn"
     }
+
+    /** Graph Switchingを有効にしないとHTPのメモリに収まらないため、既定で有効にするSpeechモデルとSoCの組み合わせ。 */
+    private val SPEECH_QNN_GRAPH_SWITCHING_DEFAULTS = setOf(SpeechModelType.WHISPER_LARGE_V3 to "sm8475")
+
+    /** Speech2TextでQNNのGraph Switchingを既定で有効にするか。画面のスイッチの初期値に使う。 */
+    fun defaultSpeechQnnGraphSwitching(modelType: SpeechModelType): Boolean =
+        defaultSpeechQnnGraphSwitching(speechSocName, modelType)
+
+    /** SoC名を引数で受け取る判定本体。 */
+    internal fun defaultSpeechQnnGraphSwitching(soc: String?, modelType: SpeechModelType): Boolean =
+        soc != null && (modelType to soc) in SPEECH_QNN_GRAPH_SWITCHING_DEFAULTS
 
     /** ailia SDKの環境名がQNNバックエンドかどうかを判定する。 */
     fun isQnnEnvironmentName(name: String): Boolean = name.contains("QNN", ignoreCase = true)

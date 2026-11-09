@@ -58,11 +58,22 @@ class VoiceAgentController(
     private val mtpNote: TextView = activity.findViewById(R.id.voiceAgentMtpNote)
     private val mtpSelections = mutableMapOf(LLMModelType.GEMMA_4_E2B to true, LLMModelType.GEMMA_4_E4B to false)
     private var updatingMtp = false
+    private val graphSwitching: SwitchCompat = activity.findViewById(R.id.voiceAgentGraphSwitching)
+    private val graphSwitchingNote: TextView = activity.findViewById(R.id.voiceAgentGraphSwitchingNote)
+    /** Graph Switchingのモデルごとの選択。初期値は端末とモデルごとの既定値。 */
+    private val graphSwitchingSelections = llmModels.associateWith {
+        QnnSupport.defaultVoiceAgentQnnGraphSwitching(it)
+    }.toMutableMap()
+    private var updatingGraphSwitching = false
     private val voiceBackend: Spinner = activity.findViewById(R.id.voiceAgentVoiceBackend)
     private val cameraFacing: Spinner = activity.findViewById(R.id.voiceAgentCameraFacing)
     private val cameraFacings = listOf(VoiceAgentCamera.Facing.BACK, VoiceAgentCamera.Facing.FRONT)
     private var sessionCameraFacing = VoiceAgentCamera.Facing.BACK
     private val speechOutput: SwitchCompat = activity.findViewById(R.id.voiceAgentSpeechOutput)
+    private val speechOutputNote: TextView = activity.findViewById(R.id.voiceAgentSpeechOutputNote)
+    /** User's choice, restored when switching back from a model that cannot use speech output. */
+    private var speechOutputSelection = false
+    private var updatingSpeechOutput = false
     private val voiceModelLabel: TextView = activity.findViewById(R.id.voiceAgentVoiceModelLabel)
     private val inputMode: RadioGroup = activity.findViewById(R.id.voiceAgentInputMode)
     private val queryPanel: View = activity.findViewById(R.id.voiceAgentQueryPanel)
@@ -129,7 +140,11 @@ class VoiceAgentController(
             queryPanel.visibility = if (checkedId == R.id.voiceAgentTestInput) View.VISIBLE else View.GONE
             updateVoiceControls()
         }
-        speechOutput.setOnCheckedChangeListener { _, _ -> updateVoiceControls() }
+        speechOutputSelection = speechOutput.isChecked
+        speechOutput.setOnCheckedChangeListener { _, checked ->
+            if (!updatingSpeechOutput) speechOutputSelection = checked
+            updateVoiceControls()
+        }
         try {
             Ailia.SetTemporaryCachePath(activity.cacheDir.absolutePath)
             val environments = AiliaModel.getEnvironments().filter { isSelectableAiliaEnvironment(it.name) }
@@ -146,13 +161,19 @@ class VoiceAgentController(
             mtp.setOnCheckedChangeListener { _, enabled ->
                 if (!updatingMtp) mtpSelections[llmModels[llmModel.selectedItemPosition]] = enabled
             }
+            graphSwitching.setOnCheckedChangeListener { _, enabled ->
+                if (!updatingGraphSwitching) graphSwitchingSelections[llmModels[llmModel.selectedItemPosition]] = enabled
+            }
             updateSpeechBackends()
             updateLlmBackends()
             speechModel.onItemSelectedListener = selectionListener { updateSpeechBackends() }
-            llmModel.onItemSelectedListener = selectionListener { updateLlmBackends() }
+            llmModel.onItemSelectedListener = selectionListener {
+                updateLlmBackends()
+                updateSpeechOutputControls()
+            }
             val voiceDefault = voiceEnvironments.indexOfFirst { it.id == cpu[cpuIndex].id }.coerceAtLeast(0)
             configure(voiceBackend, voiceEnvironments.map { it.name }, voiceDefault)
-            updateVoiceControls()
+            updateSpeechOutputControls()
         } catch (e: Exception) {
             showError(e.message ?: "バックエンドの取得に失敗しました")
             start.isEnabled = false
@@ -174,12 +195,14 @@ class VoiceAgentController(
     private fun updateSpeechBackends() {
         val previous = speechEnvironments.getOrNull(speechBackend.selectedItemPosition)
         val qnn = if (QnnSupport.speechQnnFileName(speechModels[speechModel.selectedItemPosition]) != null)
-            Environment("QNN (NPU) ${QnnSupport.socName}", defaultSpeechEnvironment.id, true) else null
+            Environment("QNN (NPU) ${QnnSupport.speechSocName}", defaultSpeechEnvironment.id, true) else null
         speechEnvironments = cpuSpeechEnvironments + listOfNotNull(qnn)
         val preferred = previous ?: qnn ?: defaultSpeechEnvironment
         val selection = speechEnvironments.indexOf(preferred).takeIf { it >= 0 }
             ?: speechEnvironments.indexOf(defaultSpeechEnvironment)
         configure(speechBackend, speechEnvironments.map { it.name }, selection)
+        speechBackend.onItemSelectedListener = selectionListener { updateGraphSwitchingControls() }
+        updateGraphSwitchingControls()
     }
 
     private fun updateLlmBackends() {
@@ -196,9 +219,24 @@ class VoiceAgentController(
                 selectedLlmBackend = backend
                 preferredLlmBackend = backend
                 updateMtpControls()
+                updateGraphSwitchingControls()
             }
         }
         updateMtpControls()
+        updateGraphSwitchingControls()
+    }
+
+    /** Graph SwitchingはQNNでのみ使えるため、音声認識とテキスト生成のどちらもQNNでなければ無効にする。 */
+    private fun updateGraphSwitchingControls() {
+        val speechQnn = speechEnvironments.getOrNull(speechBackend.selectedItemPosition)?.qnn == true
+        val supported = speechQnn || selectedLlmBackend == LLMBackend.QNN
+        updatingGraphSwitching = true
+        graphSwitching.isEnabled = supported
+        graphSwitching.isChecked = supported && graphSwitchingSelections.getValue(llmModels[llmModel.selectedItemPosition])
+        graphSwitching.alpha = if (supported) 1f else .4f
+        graphSwitchingNote.setText(if (supported) R.string.voice_agent_graph_switching_note
+            else R.string.voice_agent_graph_switching_unavailable)
+        updatingGraphSwitching = false
     }
 
     private fun updateMtpControls() {
@@ -210,6 +248,18 @@ class VoiceAgentController(
         mtp.alpha = if (supported) 1f else .4f
         mtpNote.setText(if (supported) R.string.voice_agent_mtp_note else R.string.voice_agent_mtp_unavailable)
         updatingMtp = false
+    }
+
+    private fun updateSpeechOutputControls() {
+        val supported = AiliaVoiceAgentSample.isSpeechOutputSupported(llmModels[llmModel.selectedItemPosition])
+        updatingSpeechOutput = true
+        speechOutput.isEnabled = supported
+        speechOutput.isChecked = supported && speechOutputSelection
+        speechOutput.alpha = if (supported) 1f else .4f
+        speechOutputNote.setText(if (supported) R.string.voice_agent_speech_output_note
+            else R.string.voice_agent_speech_output_unavailable)
+        updatingSpeechOutput = false
+        updateVoiceControls()
     }
 
     private fun updateVoiceControls() {
@@ -245,7 +295,8 @@ class VoiceAgentController(
             llmBackends[llmBackend.selectedItemPosition], voiceEnvironments[voiceBackend.selectedItemPosition].id,
             inputMode = mode, testQueries = queries, speechOutputEnabled = speechOutput.isChecked,
             speechModelType = speechModels[speechModel.selectedItemPosition],
-            llmModelType = llmModels[llmModel.selectedItemPosition], mtpEnabled = mtp.isChecked)
+            llmModelType = llmModels[llmModel.selectedItemPosition], mtpEnabled = mtp.isChecked,
+            qnnGraphSwitching = graphSwitching.isChecked)
         error.visibility = View.GONE
         clearToolViews()
         input.text = ""

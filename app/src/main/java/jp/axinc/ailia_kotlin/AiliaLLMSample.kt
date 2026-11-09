@@ -139,6 +139,9 @@ class AiliaLLMSample {
     /** MTPを使うか。Assistantのないモデル(Gemma 2など)では無視する。 */
     var mtpEnabled: Boolean = true
 
+    /** QNNのGraph Switchingを使うか。nullなら端末と画面の種類ごとの既定値([QnnSupport.defaultLlmQnnGraphSwitching])。 */
+    var qnnGraphSwitching: Boolean? = null
+
     /** 初期化時にMTPを有効にできたか。 */
     var isMtpActive: Boolean = false
         private set
@@ -238,6 +241,8 @@ class AiliaLLMSample {
                     nCtx = if (qnnFileName != null) N_CTX_QNN else N_CTX,
                     mtpPath = mtpFile?.absolutePath,
                     projectorPath = projectorFile?.absolutePath,
+                    backend = backend,
+                    qnnGraphSwitching = SharedLLM.qnnGraphSwitching(backend, qnnGraphSwitching, mediaInput = false),
                 )
             )
             isMtpActive = SharedLLM.isMtpActive

@@ -19,7 +19,18 @@ import java.util.concurrent.atomic.AtomicBoolean
  * ailia LLMのマルチモーダル入力はファイルパスで音声を受け取るため、
  * 録音結果はそのまま渡せるWAV(PCM 16bit)として保存する。
  */
-class WavRecorder {
+class WavRecorder(
+    /**
+     * 録音の上限(秒)。上限に達すると録音を終了して[RecordingListener.onCompleted]を呼ぶ。
+     * nullの場合は[stopRecording]が呼ばれるまで無制限に録音する。
+     */
+    private val maxRecordingSeconds: Int? = MAX_RECORDING_SECONDS,
+    /**
+     * falseの場合、録音したPCMを保持せずWAVも書き出さない(波形は[RecordingListener.onWaveform]で受け取る)。
+     * [RecordingListener.onCompleted]には空の音声が渡され、ファイルは作成されない。長時間録音のメモリ対策。
+     */
+    private val retainAudio: Boolean = true,
+) {
     interface RecordingListener {
         /** 録音中の波形。UIの波形表示を更新するために定期的に呼ばれる。 */
         fun onWaveform(chunk: FloatArray, sampleRate: Int)
@@ -87,14 +98,14 @@ class WavRecorder {
         val chunkSize = SAMPLE_RATE / 10
         val buffer = ShortArray(chunkSize)
         val chunks = mutableListOf<ShortArray>()
-        var sampleCount = 0
-        val maximumSamples = SAMPLE_RATE * MAX_RECORDING_SECONDS
+        var sampleCount = 0L
+        val maximumSamples = maxRecordingSeconds?.let { SAMPLE_RATE.toLong() * it } ?: Long.MAX_VALUE
         try {
             while (recording.get() && sampleCount < maximumSamples) {
                 val count = recorder.read(buffer, 0, buffer.size)
                 if (count < 0) error("AudioRecord read failed: $count")
                 if (count == 0) continue
-                chunks += buffer.copyOf(count)
+                if (retainAudio) chunks += buffer.copyOf(count)
                 sampleCount += count
                 listener.onWaveform(FloatArray(count) { buffer[it] / 32768f }, SAMPLE_RATE)
             }
@@ -109,9 +120,11 @@ class WavRecorder {
             releaseRecorder()
             recordingExecutor?.shutdown()
             recordingExecutor = null
-            if (!cancelled.get() && sampleCount > 0) {
+            if (!cancelled.get() && sampleCount > 0 && !retainAudio) {
+                listener.onCompleted(outputFile, FloatArray(0), SAMPLE_RATE)
+            } else if (!cancelled.get() && sampleCount > 0) {
                 try {
-                    val pcm = ShortArray(sampleCount)
+                    val pcm = ShortArray(sampleCount.toInt())
                     var offset = 0
                     chunks.forEach { chunk ->
                         System.arraycopy(chunk, 0, pcm, offset, chunk.size)

@@ -2,7 +2,6 @@ package jp.axinc.ailia_kotlin
 
 import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.CancellationException
-import java.util.concurrent.CountDownLatch
 import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
@@ -71,8 +70,9 @@ internal class VoiceAgentSpeechText {
 
 /**
  * The LLM only queues text. A dedicated worker owns synthesis and a second worker owns playback.
- * Only text queues while generation/continuation runs; only two completed PCM clips can wait.
- * Playback is held until finish(), so generation keeps its UI state and failures speak nothing.
+ * Phrases are synthesized and played while generation/continuation is still running; only two
+ * completed PCM clips can wait ahead of playback. A generation failure or cancellation closes this
+ * and stops the clip being played, so the remainder of a failed answer is never spoken.
  */
 internal class VoiceAgentStreamingSpeech<T : Any>(
     private val checkActive: () -> Unit,
@@ -81,18 +81,13 @@ internal class VoiceAgentStreamingSpeech<T : Any>(
 ) : AutoCloseable {
     private val text = VoiceAgentSpeechText()
     private val phrases = LinkedBlockingQueue<String>()
-    private val playbackReady = CountDownLatch(1)
     private val stopped = AtomicBoolean(false)
     private val failure = AtomicReference<Throwable?>(null)
     // Load voice/reference while the LLM opens/prefills, before the first phrase arrives.
     private val worker = Thread({
         try {
             withSynthesis { synthesize ->
-                voiceAgentQueueSpeech({ check -> nextPhrase(check) }, ::checkRunning, synthesize) { audio, check ->
-                    while (!playbackReady.await(50, TimeUnit.MILLISECONDS)) check()
-                    check()
-                    play(audio, check)
-                }
+                voiceAgentQueueSpeech({ check -> nextPhrase(check) }, ::checkRunning, synthesize, play)
             }
         } catch (error: Throwable) {
             if (!stopped.get()) failure.compareAndSet(null, error)
@@ -124,7 +119,6 @@ internal class VoiceAgentStreamingSpeech<T : Any>(
     fun finish() {
         checkRunning()
         phrases.add("")
-        playbackReady.countDown()
         while (worker.isAlive) {
             checkRunning()
             worker.join(50)
@@ -134,7 +128,6 @@ internal class VoiceAgentStreamingSpeech<T : Any>(
 
     override fun close() {
         stopped.set(true)
-        playbackReady.countDown()
         worker.interrupt()
         // Native synthesis cannot be aborted. Join its owner before recognition/the next turn.
         var interrupted = false
