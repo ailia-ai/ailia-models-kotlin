@@ -72,6 +72,9 @@ class MainActivity : AppCompatActivity() {
     private lateinit var toolUseThinkingSwitch: SwitchCompat
     private lateinit var llmMtpSwitch: SwitchCompat
     private lateinit var llmGraphSwitchingSwitch: SwitchCompat
+    private lateinit var llmGraphSwitchingNoteTextView: TextView
+    /** LLM系の画面ごとのGraph Switchingの選択。未操作の画面は端末と画面の種類ごとの既定値。 */
+    private val llmGraphSwitchingSelections = mutableMapOf<AlgorithmType, Boolean>()
     private lateinit var speechGraphSwitchingSwitch: SwitchCompat
     private lateinit var settingsDebugLabel: TextView
     private lateinit var settingsQnnFormatLabel: TextView
@@ -402,11 +405,10 @@ class MainActivity : AppCompatActivity() {
         llmMtpSwitch = findViewById(R.id.llmMtpSwitch)
         // MTPのON/OFFを変えたらモデルを開き直す(Assistantは後から外せないため)
         llmMtpSwitch.setOnCheckedChangeListener { _, _ -> releaseLLMSamples() }
-        // Graph SwitchingはopenModelFileより前にしか設定できないため、切り替えたらモデルを開き直す。
-        // LLM系の画面はmmprojを常に開くため、mmprojを開く場合の端末ごとの既定値を初期値にする
+        // Graph Switchingは画面ごとの値を表示する(updateLlmGraphSwitchingControls)
         llmGraphSwitchingSwitch = findViewById(R.id.llmGraphSwitchingSwitch)
-        llmGraphSwitchingSwitch.isChecked = QnnSupport.defaultLlmQnnGraphSwitching(withProjector = true)
-        llmGraphSwitchingSwitch.setOnCheckedChangeListener { _, _ -> releaseLLMSamples() }
+        llmGraphSwitchingNoteTextView = findViewById(R.id.llmGraphSwitchingNoteTextView)
+        llmGraphSwitchingSwitch.setOnCheckedChangeListener(llmGraphSwitchingListener)
         speechGraphSwitchingSwitch = findViewById(R.id.speechGraphSwitchingSwitch)
         speechGraphSwitchingSwitch.isChecked = QnnSupport.defaultSpeechQnnGraphSwitching(selectedSpeechModelType)
         speechGraphSwitchingSwitch.setOnCheckedChangeListener { _, _ -> resetSpeechModel() }
@@ -968,6 +970,7 @@ class MainActivity : AppCompatActivity() {
         llmEnvSpinner.adapter = adapter
         llmEnvSpinner.setSelection(backends.indexOf(selectedLLMBackend).coerceAtLeast(0), false)
         llmGraphSwitchingSwitch.isEnabled = selectedLLMBackend == LLMBackend.QNN
+        updateLlmGraphSwitchingControls()
         llmEnvSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
             override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
                 val newBackend = backends[position]
@@ -975,6 +978,7 @@ class MainActivity : AppCompatActivity() {
                     selectedLLMBackend = newBackend
                     preferredLLMBackend = newBackend
                     llmGraphSwitchingSwitch.isEnabled = newBackend == LLMBackend.QNN
+                    updateLlmGraphSwitchingControls()
                     // バックエンド切り替え時は解放のみ(ダウンロードはSend押下時)
                     releaseLLMSamples()
                 }
@@ -1152,6 +1156,43 @@ class MainActivity : AppCompatActivity() {
     /** LLM / VLM / ALM / Tool Useで共有しているモデルを閉じる。LLM系以外の画面に移るときに呼ぶ。 */
     private fun releaseSharedLLM() = runOnModelThread(cameraExecutor, cameraThread) {
         SharedLLM.release()
+    }
+
+    /**
+     * LLM系の画面でGraph Switchingを切り替えたら、その画面の選択として覚えてモデルを開き直す。
+     * Graph SwitchingはopenModelFileより前にしか設定できないため。
+     */
+    private val llmGraphSwitchingListener = CompoundButton.OnCheckedChangeListener { _, checked ->
+        llmGraphSwitchingSelections[currentAlgorithm] = checked
+        updateLlmGraphSwitchingControls()
+        releaseLLMSamples()
+    }
+
+    /** 画像・音声を入力するLLM系の画面(VLM/ALM)か。 */
+    private fun isLlmMediaScreen(algorithm: AlgorithmType): Boolean =
+        algorithm == AlgorithmType.MULTIMODAL_LLM || algorithm == AlgorithmType.ALM
+
+    /** LLM系の画面のGraph Switchingの選択。未操作なら端末と画面の種類ごとの既定値。 */
+    private fun llmGraphSwitchingSelection(algorithm: AlgorithmType): Boolean =
+        llmGraphSwitchingSelections.getOrPut(algorithm) {
+            QnnSupport.defaultLlmQnnGraphSwitching(mediaInput = isLlmMediaScreen(algorithm))
+        }
+
+    /**
+     * スイッチを表示中の画面の選択に合わせる。既定でオンの画面(sm8475のVLM/ALM)をQNNでオフにした場合は、
+     * 画像・音声の入力がメモリ不足で失敗しうることを表示する。
+     */
+    private fun updateLlmGraphSwitchingControls() {
+        if (currentAlgorithm !in LLM_ALGORITHMS) return
+        val selected = llmGraphSwitchingSelection(currentAlgorithm)
+        if (llmGraphSwitchingSwitch.isChecked != selected) {
+            llmGraphSwitchingSwitch.setOnCheckedChangeListener(null)
+            llmGraphSwitchingSwitch.isChecked = selected
+            llmGraphSwitchingSwitch.setOnCheckedChangeListener(llmGraphSwitchingListener)
+        }
+        val warn = selectedLLMBackend == LLMBackend.QNN && !selected &&
+            QnnSupport.defaultLlmQnnGraphSwitching(mediaInput = isLlmMediaScreen(currentAlgorithm))
+        llmGraphSwitchingNoteTextView.visibility = if (warn) View.VISIBLE else View.GONE
     }
 
     /**
@@ -1474,6 +1515,7 @@ class MainActivity : AppCompatActivity() {
         llmEnvSpinner,
         llmMtpSwitch,
         llmGraphSwitchingSwitch,
+        llmGraphSwitchingNoteTextView,
         speechGraphSwitchingSwitch,
         settingsDebugLabel,
         settingsQnnFormatLabel,
@@ -1683,6 +1725,7 @@ class MainActivity : AppCompatActivity() {
         managedAlgorithmViews().forEach { view ->
             view.visibility = if (view in visibleViews) View.VISIBLE else View.GONE
         }
+        updateLlmGraphSwitchingControls()
 
         // LLM/VLM/ALMはStatusにPrefill/Decodeの計測結果を出すため、Processing Timeは表示しない
         val isChatAlgorithm = currentAlgorithm == AlgorithmType.LLM ||

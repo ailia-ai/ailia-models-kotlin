@@ -104,11 +104,14 @@ class QnnSupportTest {
     }
 
     @Test
-    fun `LLM graph switching defaults on only on sm8475 when mmproj is opened`() {
-        assertTrue(QnnSupport.defaultLlmQnnGraphSwitching("sm8475", withProjector = true))
-        assertFalse(QnnSupport.defaultLlmQnnGraphSwitching("sm8475", withProjector = false))
-        assertFalse(QnnSupport.defaultLlmQnnGraphSwitching("sm7635", withProjector = true))
-        assertFalse(QnnSupport.defaultLlmQnnGraphSwitching(null, withProjector = true))
+    fun `LLM graph switching defaults on only for image and audio screens on sm8475`() {
+        // VLM / ALM
+        assertTrue(QnnSupport.defaultLlmQnnGraphSwitching("sm8475", mediaInput = true))
+        assertFalse(QnnSupport.defaultLlmQnnGraphSwitching("sm7635", mediaInput = true))
+        assertFalse(QnnSupport.defaultLlmQnnGraphSwitching(null, mediaInput = true))
+        // LLM / Tool Useは文字だけなのでグラフを常駐させる
+        assertFalse(QnnSupport.defaultLlmQnnGraphSwitching("sm8475", mediaInput = false))
+        assertFalse(QnnSupport.defaultLlmQnnGraphSwitching("sm7635", mediaInput = false))
     }
 
     @Test

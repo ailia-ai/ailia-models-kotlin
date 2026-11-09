@@ -129,21 +129,22 @@ object QnnSupport {
     internal enum class QnnLlmFile { MODEL, MMPROJ, MTP_ASSISTANT }
 
     /**
-     * mmproj(VLM/ALM)を開く場合に、LLMのGraph Switchingを既定で有効にするSoC。
-     * sm8475はグラフを常駐させるとHTPのメモリに収まらない。
+     * 画像・音声を入力する画面(VLM/ALM)で、LLMのGraph Switchingを既定で有効にするSoC。
+     * sm8475はLLMとmmprojのグラフを同時に常駐させるとHTPのメモリに収まらない。
      */
-    private val LLM_QNN_MMPROJ_GRAPH_SWITCHING_SOCS = setOf("sm8475")
+    private val LLM_QNN_MEDIA_GRAPH_SWITCHING_SOCS = setOf("sm8475")
 
     /**
-     * LLM / VLM / ALM / Tool UseでQNNのGraph Switchingを既定で有効にするか。各画面のスイッチの初期値に使う。
-     * openModelFileより前に設定する必要があるため、実際に画像・音声を入力するかではなく、mmprojを開くかどうかで判定する。
+     * LLM系の画面でQNNのGraph Switchingを既定で有効にするか。画面ごとのスイッチの初期値に使う。
+     * [mediaInput]は画像・音声を入力する画面(VLM/ALM)。LLM / Tool Useは文字だけを扱うため、
+     * グラフを常駐させて最初の応答を速くする(mmprojのグラフは使うまで読み込まれない)。
      */
-    fun defaultLlmQnnGraphSwitching(withProjector: Boolean): Boolean =
-        defaultLlmQnnGraphSwitching(socName, withProjector)
+    fun defaultLlmQnnGraphSwitching(mediaInput: Boolean): Boolean =
+        defaultLlmQnnGraphSwitching(socName, mediaInput)
 
     /** SoC名を引数で受け取る判定本体。 */
-    internal fun defaultLlmQnnGraphSwitching(soc: String?, withProjector: Boolean): Boolean =
-        withProjector && soc in LLM_QNN_MMPROJ_GRAPH_SWITCHING_SOCS
+    internal fun defaultLlmQnnGraphSwitching(soc: String?, mediaInput: Boolean): Boolean =
+        mediaInput && soc in LLM_QNN_MEDIA_GRAPH_SWITCHING_SOCS
 
     /**
      * Voice AgentでGraph Switchingを既定で有効にするSoC。
