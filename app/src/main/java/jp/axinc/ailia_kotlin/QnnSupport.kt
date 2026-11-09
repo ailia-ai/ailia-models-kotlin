@@ -128,19 +128,40 @@ object QnnSupport {
     /** QNNモデルのファイルの種類。 */
     internal enum class QnnLlmFile { MODEL, MMPROJ, MTP_ASSISTANT }
 
-    /** mmproj(VLM/ALM)を開く場合にLLMのGraph Switchingを有効にする必要があるSoC。 */
-    private val LLM_QNN_MMPROJ_GRAPH_SWITCHING_REQUIRED_SOCS = setOf("sm8475")
+    /**
+     * mmproj(VLM/ALM)を開く場合に、LLMのGraph Switchingを既定で有効にするSoC。
+     * sm8475はグラフを常駐させるとHTPのメモリに収まらない。
+     */
+    private val LLM_QNN_MMPROJ_GRAPH_SWITCHING_SOCS = setOf("sm8475")
 
     /**
-     * QNNのLLMを開く際にGraph Switchingが必須か。openModelFileより前に設定する必要があるため、
-     * 実際に画像・音声を入力するかではなく、mmprojを開くかどうかで判定する。
+     * LLM / VLM / ALM / Tool UseでQNNのGraph Switchingを既定で有効にするか。各画面のスイッチの初期値に使う。
+     * openModelFileより前に設定する必要があるため、実際に画像・音声を入力するかではなく、mmprojを開くかどうかで判定する。
      */
-    fun isLlmQnnGraphSwitchingRequired(withProjector: Boolean): Boolean =
-        isLlmQnnGraphSwitchingRequired(socName, withProjector)
+    fun defaultLlmQnnGraphSwitching(withProjector: Boolean): Boolean =
+        defaultLlmQnnGraphSwitching(socName, withProjector)
 
     /** SoC名を引数で受け取る判定本体。 */
-    internal fun isLlmQnnGraphSwitchingRequired(soc: String?, withProjector: Boolean): Boolean =
-        withProjector && soc in LLM_QNN_MMPROJ_GRAPH_SWITCHING_REQUIRED_SOCS
+    internal fun defaultLlmQnnGraphSwitching(soc: String?, withProjector: Boolean): Boolean =
+        withProjector && soc in LLM_QNN_MMPROJ_GRAPH_SWITCHING_SOCS
+
+    /**
+     * Voice AgentでGraph Switchingを既定で有効にするSoC。
+     * sm8475ではWhisperとGemma 4 E2B(mmprojを常に開く)を同じプロセスで使うと、
+     * グラフ常駐ではLLMのコンテキストをHTPに割り当てられないことがある。
+     */
+    private val VOICE_AGENT_QNN_GRAPH_SWITCHING_SOCS = setOf("sm8475")
+
+    /**
+     * Voice AgentでWhisperとLLMのQNNのGraph Switchingを既定で有効にするか。設定画面のスイッチの初期値に使う。
+     * Gemma 4 E4BはWhisperと合わせるとメモリが不足するため、どの端末でも有効にする。
+     */
+    fun defaultVoiceAgentQnnGraphSwitching(llmModelType: LLMModelType): Boolean =
+        defaultVoiceAgentQnnGraphSwitching(socName, llmModelType)
+
+    /** SoC名を引数で受け取る判定本体。 */
+    internal fun defaultVoiceAgentQnnGraphSwitching(soc: String?, llmModelType: LLMModelType): Boolean =
+        llmModelType == LLMModelType.GEMMA_4_E4B || soc in VOICE_AGENT_QNN_GRAPH_SWITCHING_SOCS
 
     /** SoC名を引数で受け取る判定本体(端末を用意せずテストできるようにするため)。 */
     internal fun isFp16SupportedSoc(soc: String?): Boolean =
@@ -186,7 +207,7 @@ object QnnSupport {
         SpeechModelType.WHISPER_MEDIUM to QnnModel("whisper-medium", SPEECH_QNN_SOCS),
         // qcs6490はOOMで失敗するため非対応。
         // sm8475はグラフ常駐ではQnnContext_createFromBinaryがQNN_COMMON_ERROR_MEM_ALLOCで失敗するため、
-        // Graph Switchingを有効にして使用する([isSpeechQnnGraphSwitchingRequired])。
+        // Graph Switchingを既定で有効にする([defaultSpeechQnnGraphSwitching])。
         SpeechModelType.WHISPER_LARGE_V3 to QnnModel("whisper-large-v3", SPEECH_QNN_SOCS - "qcs6490"),
         SpeechModelType.WHISPER_LARGE_V3_TURBO to QnnModel("whisper-large-v3-turbo", SPEECH_QNN_SOCS),
     )
@@ -209,16 +230,16 @@ object QnnSupport {
         return "${model.filePrefix}-$soc-$precision.qnn"
     }
 
-    /** Graph Switchingを有効にしないとHTPのメモリに収まらないSpeechモデルとSoCの組み合わせ。 */
-    private val SPEECH_QNN_GRAPH_SWITCHING_REQUIRED = setOf(SpeechModelType.WHISPER_LARGE_V3 to "sm8475")
+    /** Graph Switchingを有効にしないとHTPのメモリに収まらないため、既定で有効にするSpeechモデルとSoCの組み合わせ。 */
+    private val SPEECH_QNN_GRAPH_SWITCHING_DEFAULTS = setOf(SpeechModelType.WHISPER_LARGE_V3 to "sm8475")
 
-    /** 指定したSpeechモデルのQNNモデルを開く際にGraph Switchingが必須か。 */
-    fun isSpeechQnnGraphSwitchingRequired(modelType: SpeechModelType): Boolean =
-        isSpeechQnnGraphSwitchingRequired(speechSocName, modelType)
+    /** Speech2TextでQNNのGraph Switchingを既定で有効にするか。画面のスイッチの初期値に使う。 */
+    fun defaultSpeechQnnGraphSwitching(modelType: SpeechModelType): Boolean =
+        defaultSpeechQnnGraphSwitching(speechSocName, modelType)
 
     /** SoC名を引数で受け取る判定本体。 */
-    internal fun isSpeechQnnGraphSwitchingRequired(soc: String?, modelType: SpeechModelType): Boolean =
-        soc != null && (modelType to soc) in SPEECH_QNN_GRAPH_SWITCHING_REQUIRED
+    internal fun defaultSpeechQnnGraphSwitching(soc: String?, modelType: SpeechModelType): Boolean =
+        soc != null && (modelType to soc) in SPEECH_QNN_GRAPH_SWITCHING_DEFAULTS
 
     /** ailia SDKの環境名がQNNバックエンドかどうかを判定する。 */
     fun isQnnEnvironmentName(name: String): Boolean = name.contains("QNN", ignoreCase = true)

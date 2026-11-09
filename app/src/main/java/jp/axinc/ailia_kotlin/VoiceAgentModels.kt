@@ -45,7 +45,7 @@ internal class VoiceAgentModels(private val context: Context) {
         checkActive()
         speech.currentModelType = config.speechModelType
         speech.useQnn = config.speechQnn
-        // Gemma 4 E4BはWhisperと合わせるとHTPのメモリが不足するため、SpeechとLLMの両方でGraph Switchingを使う
+        // 設定画面のGraph SwitchingはSpeechとLLMの両方に適用する(E4Bや一部の端末ではHTPのメモリが不足するため)
         speech.qnnGraphSwitching = config.qnnGraphSwitching
         speech.language = "ja"
         check(speech.downloadModel(listener = progress)) { "Whisperモデルのダウンロードに失敗しました" }
@@ -146,9 +146,7 @@ internal class VoiceAgentModels(private val context: Context) {
         val photos = mutableListOf<JSONObject>()
         try {
             // Graph SwitchingはopenModelFileより前に設定する。QNN以外では有効化できないためQNN時のみ設定する。
-            // カメラのツール用にmmprojを常に開くため、sm8475ではE2BでもGraph Switchingが必要
-            if (config.llmBackend == LLMBackend.QNN &&
-                (config.qnnGraphSwitching || QnnSupport.isLlmQnnGraphSwitchingRequired(withProjector = true))) {
+            if (config.llmBackend == LLMBackend.QNN && config.qnnGraphSwitching) {
                 Log.i("VoiceAgent", "Enabling LLM QNN graph switching")
                 model.setQNNGraphSwitching(true)
             }

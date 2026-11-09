@@ -19,18 +19,25 @@ import java.io.File
 object SharedLLM {
     private const val TAG = "SharedLLM"
 
-    /** 開いているモデルの組み合わせ。同じなら使い回す。 */
+    /**
+     * 開いているモデルの組み合わせ。同じなら使い回す。
+     * Graph SwitchingはopenModelFileより前にしか設定できないため、切り替えたら開き直す。
+     */
     data class Config(
         val modelPath: String,
         val nCtx: Int,
         val mtpPath: String?,
         val projectorPath: String?,
         val backend: LLMBackend,
-    ) {
-        /** sm8475ではmmprojを開く場合にGraph Switchingが必要([QnnSupport.isLlmQnnGraphSwitchingRequired])。 */
-        val qnnGraphSwitching: Boolean
-            get() = backend == LLMBackend.QNN && QnnSupport.isLlmQnnGraphSwitchingRequired(projectorPath != null)
-    }
+        val qnnGraphSwitching: Boolean,
+    )
+
+    /**
+     * QNNのGraph Switchingを使うか。QNN以外では有効にできないため常にfalse。
+     * [requested]がnullなら端末ごとの既定値([QnnSupport.defaultLlmQnnGraphSwitching])を使う。
+     */
+    fun qnnGraphSwitching(backend: LLMBackend, requested: Boolean?, withProjector: Boolean): Boolean =
+        backend == LLMBackend.QNN && (requested ?: QnnSupport.defaultLlmQnnGraphSwitching(withProjector))
 
     private var llm: AiliaLLM? = null
     private var config: Config? = null

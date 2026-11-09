@@ -71,6 +71,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var llmInputBar: LinearLayout
     private lateinit var toolUseThinkingSwitch: SwitchCompat
     private lateinit var llmMtpSwitch: SwitchCompat
+    private lateinit var llmGraphSwitchingSwitch: SwitchCompat
+    private lateinit var speechGraphSwitchingSwitch: SwitchCompat
     private lateinit var settingsDebugLabel: TextView
     private lateinit var settingsQnnFormatLabel: TextView
     private lateinit var settingsQnnFormatRadioGroup: RadioGroup
@@ -400,6 +402,14 @@ class MainActivity : AppCompatActivity() {
         llmMtpSwitch = findViewById(R.id.llmMtpSwitch)
         // MTPのON/OFFを変えたらモデルを開き直す(Assistantは後から外せないため)
         llmMtpSwitch.setOnCheckedChangeListener { _, _ -> releaseLLMSamples() }
+        // Graph SwitchingはopenModelFileより前にしか設定できないため、切り替えたらモデルを開き直す。
+        // LLM系の画面はmmprojを常に開くため、mmprojを開く場合の端末ごとの既定値を初期値にする
+        llmGraphSwitchingSwitch = findViewById(R.id.llmGraphSwitchingSwitch)
+        llmGraphSwitchingSwitch.isChecked = QnnSupport.defaultLlmQnnGraphSwitching(withProjector = true)
+        llmGraphSwitchingSwitch.setOnCheckedChangeListener { _, _ -> releaseLLMSamples() }
+        speechGraphSwitchingSwitch = findViewById(R.id.speechGraphSwitchingSwitch)
+        speechGraphSwitchingSwitch.isChecked = QnnSupport.defaultSpeechQnnGraphSwitching(selectedSpeechModelType)
+        speechGraphSwitchingSwitch.setOnCheckedChangeListener { _, _ -> resetSpeechModel() }
         settingsDebugLabel = findViewById(R.id.settingsDebugLabel)
         settingsQnnFormatLabel = findViewById(R.id.settingsQnnFormatLabel)
         settingsQnnFormatRadioGroup = findViewById(R.id.settingsQnnFormatRadioGroup)
@@ -957,12 +967,14 @@ class MainActivity : AppCompatActivity() {
         llmEnvSpinner.onItemSelectedListener = null
         llmEnvSpinner.adapter = adapter
         llmEnvSpinner.setSelection(backends.indexOf(selectedLLMBackend).coerceAtLeast(0), false)
+        llmGraphSwitchingSwitch.isEnabled = selectedLLMBackend == LLMBackend.QNN
         llmEnvSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
             override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
                 val newBackend = backends[position]
                 if (newBackend != selectedLLMBackend) {
                     selectedLLMBackend = newBackend
                     preferredLLMBackend = newBackend
+                    llmGraphSwitchingSwitch.isEnabled = newBackend == LLMBackend.QNN
                     // バックエンド切り替え時は解放のみ(ダウンロードはSend押下時)
                     releaseLLMSamples()
                 }
@@ -1010,6 +1022,7 @@ class MainActivity : AppCompatActivity() {
         speechEnvSpinner.onItemSelectedListener = null
         speechEnvSpinner.adapter = adapter
         if (selection >= 0) speechEnvSpinner.setSelection(selection, false)
+        speechGraphSwitchingSwitch.isEnabled = selectedSpeechUseQnn
         speechEnvSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
             override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
                 val newUseQnn = position == qnnPosition
@@ -1022,11 +1035,9 @@ class MainActivity : AppCompatActivity() {
                     selectedSpeechUseQnn = newUseQnn
                     preferredSpeechUseQnn = newUseQnn
                     selectedEnvId = newEnvId
+                    speechGraphSwitchingSwitch.isEnabled = newUseQnn
                     // バックエンド切り替え時は解放のみ(ダウンロードはRun/Record押下時)
-                    stopMicRecording(finalize = false)
-                    releaseSpeechModel()
-                    isInitialized = false
-                    isDownloadingModel.set(false)
+                    resetSpeechModel()
                 }
             }
             override fun onNothingSelected(parent: AdapterView<*>?) {}
@@ -1115,6 +1126,14 @@ class MainActivity : AppCompatActivity() {
         } catch (e: java.util.concurrent.RejectedExecutionException) {
             Log.w("AILIA_Main", "Model thread is shut down, skipped release: ${e.message}")
         }
+    }
+
+    /** 録音を止めてSpeech2Textのモデルを解放し、次のRun/Record押下時に初期化し直す。 */
+    private fun resetSpeechModel() {
+        stopMicRecording(finalize = false)
+        releaseSpeechModel()
+        isInitialized = false
+        isDownloadingModel.set(false)
     }
 
     /** Speech2Textのモデルを初期化したspeechExecutorで解放する。 */
@@ -1237,11 +1256,12 @@ class MainActivity : AppCompatActivity() {
                     selectedSpeechModelType = newType
                     // 選んだモデルのQNN対応状況で選択肢を決める
                     setupSpeechEnvSpinner()
-                    stopMicRecording(finalize = false)
+                    // Graph Switchingの初期値はモデルごとに異なるため、モデルを変えたら既定値に戻す
+                    speechGraphSwitchingSwitch.setOnCheckedChangeListener(null)
+                    speechGraphSwitchingSwitch.isChecked = QnnSupport.defaultSpeechQnnGraphSwitching(newType)
+                    speechGraphSwitchingSwitch.setOnCheckedChangeListener { _, _ -> resetSpeechModel() }
                     // モデルダウンロードはRun/Record押下時まで遅延する
-                    releaseSpeechModel()
-                    isInitialized = false
-                    isDownloadingModel.set(false)
+                    resetSpeechModel()
                     clearTranscript()
                     classificationResultTextView.text = "Speech Result: --"
                 }
@@ -1453,6 +1473,8 @@ class MainActivity : AppCompatActivity() {
         llmStatusTextView,
         llmEnvSpinner,
         llmMtpSwitch,
+        llmGraphSwitchingSwitch,
+        speechGraphSwitchingSwitch,
         settingsDebugLabel,
         settingsQnnFormatLabel,
         settingsQnnFormatRadioGroup,
@@ -1533,6 +1555,7 @@ class MainActivity : AppCompatActivity() {
             speechModeRadioGroup,
             diarizationCheckBox,
             speechEnvSpinner,
+            speechGraphSwitchingSwitch,
         )
         if (isMicMode) {
             speechViews.addAll(
@@ -1559,6 +1582,7 @@ class MainActivity : AppCompatActivity() {
             llmStatusTextView,
             llmEnvSpinner,
             llmMtpSwitch,
+            llmGraphSwitchingSwitch,
         )
 
         // PPS計測用の貼り付けボタンはテキストのLLM画面だけに表示する
@@ -2371,6 +2395,8 @@ class MainActivity : AppCompatActivity() {
         // 生成中にバックエンドや入力ソースを変えるとモデルを解放してしまうため止める
         llmEnvSpinner.isEnabled = enabled
         llmMtpSwitch.isEnabled = enabled
+        llmGraphSwitchingSwitch.isEnabled = enabled && selectedLLMBackend == LLMBackend.QNN
+        speechGraphSwitchingSwitch.isEnabled = enabled && selectedSpeechUseQnn
         toolUseThinkingSwitch.isEnabled = enabled
         almRecordButton.isEnabled = enabled
         almInputModeRadioGroup.isEnabled = enabled
@@ -2482,6 +2508,7 @@ class MainActivity : AppCompatActivity() {
         val modelType = selectedLLMModelType
         val backend = selectedLLMBackend
         val mtpEnabled = llmMtpSwitch.isChecked
+        val graphSwitching = llmGraphSwitchingSwitch.isChecked
         setLLMControlsEnabled(false)
         processingTimeTextView.text = "Processing Time: -- ms"
         llmStatusTextView.text = if (needsInitialization) "Status: Initializing..." else "Status: Generating..."
@@ -2498,6 +2525,7 @@ class MainActivity : AppCompatActivity() {
                     llmSample.modelType = modelType
                     llmSample.backend = backend
                     llmSample.mtpEnabled = mtpEnabled
+                    llmSample.qnnGraphSwitching = graphSwitching
                     llmSample.initialize(this@MainActivity, object : ModelDownloader.DownloadListener {
                         override fun onProgress(bytesDownloaded: Long, totalBytes: Long) {
                             if (!isCurrentOperation(operationId)) return
@@ -2617,6 +2645,7 @@ class MainActivity : AppCompatActivity() {
         val backend = selectedLLMBackend
         val modelType = selectedGemma4ModelType
         val mtpEnabled = llmMtpSwitch.isChecked
+        val graphSwitching = llmGraphSwitchingSwitch.isChecked
         val thinking = toolUseThinkingSwitch.isChecked
         val generatingStatus = "Status: Generating... (Thinking: ${if (thinking) "ON" else "OFF"})"
         setLLMControlsEnabled(false)
@@ -2633,6 +2662,7 @@ class MainActivity : AppCompatActivity() {
                     toolUseSample.backend = backend
                     toolUseSample.modelType = modelType
                     toolUseSample.mtpEnabled = mtpEnabled
+                    toolUseSample.qnnGraphSwitching = graphSwitching
                     toolUseSample.initialize(this@MainActivity, object : ModelDownloader.DownloadListener {
                         override fun onProgress(bytesDownloaded: Long, totalBytes: Long) {
                             if (!isCurrentOperation(operationId)) return
@@ -2792,6 +2822,7 @@ class MainActivity : AppCompatActivity() {
             val backend = selectedLLMBackend
             val modelType = selectedGemma4ModelType
             val mtpEnabled = llmMtpSwitch.isChecked
+            val graphSwitching = llmGraphSwitchingSwitch.isChecked
             setLLMControlsEnabled(false)
             processingTimeTextView.text = "Processing Time: -- ms"
             llmStatusTextView.text = if (needsInitialization) "Status: Initializing..." else "Status: Generating..."
@@ -2858,6 +2889,7 @@ class MainActivity : AppCompatActivity() {
                         multimodalLLMSample.backend = backend
                         multimodalLLMSample.modelType = modelType
                         multimodalLLMSample.mtpEnabled = mtpEnabled
+                        multimodalLLMSample.qnnGraphSwitching = graphSwitching
                         multimodalLLMSample.initialize(this@MainActivity, listener)
                     } else {
                         true
@@ -3046,6 +3078,7 @@ class MainActivity : AppCompatActivity() {
         val backend = selectedLLMBackend
         val modelType = selectedGemma4ModelType
         val mtpEnabled = llmMtpSwitch.isChecked
+        val graphSwitching = llmGraphSwitchingSwitch.isChecked
         setLLMControlsEnabled(false)
         processingTimeTextView.text = "Processing Time: -- ms"
         llmStatusTextView.text = if (needsInitialization) "Status: Initializing..." else "Status: Generating..."
@@ -3095,6 +3128,7 @@ class MainActivity : AppCompatActivity() {
                     almSample.backend = backend
                     almSample.modelType = modelType
                     almSample.mtpEnabled = mtpEnabled
+                    almSample.qnnGraphSwitching = graphSwitching
                     almSample.initialize(this@MainActivity, listener)
                 } else {
                     true
@@ -4425,6 +4459,7 @@ class MainActivity : AppCompatActivity() {
         val modelType = selectedSpeechModelType
         val envId = selectedEnvId
         val useQnn = selectedSpeechUseQnn
+        val graphSwitching = speechGraphSwitchingSwitch.isChecked
         val language = if (isMicMode) selectedSpeechLanguage else "auto"
         processingTimeTextView.text = "Processing Time: -- ms"
         speechRunButton.isEnabled = false
@@ -4433,6 +4468,7 @@ class MainActivity : AppCompatActivity() {
             try {
                 // QNN選択時はダウンロードするファイルも.qnnに変わるため先に設定する
                 speechSample.useQnn = useQnn
+                speechSample.qnnGraphSwitching = graphSwitching
                 speechSample.diarizationEnabled = diarization
                 val downloaded = speechSample.downloadModel(modelType, object : ModelDownloadListener {
                     override fun onProgress(fileName: String, bytesDownloaded: Long, totalBytes: Long) {

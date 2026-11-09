@@ -185,9 +185,9 @@ class AiliaSpeechSample(private val modelDirectory: File) {
 
     /**
      * trueの場合、QNNモデル(.qnn)を開く際にGraph Switchingを有効にしてHTPの常駐メモリを減らす。
-     * 推論時間は増える場合がある。[QnnSupport.isSpeechQnnGraphSwitchingRequired]の組み合わせでは常に有効にする。
+     * 推論時間は増える場合がある。nullなら端末とモデルごとの既定値([QnnSupport.defaultSpeechQnnGraphSwitching])。
      */
-    var qnnGraphSwitching: Boolean = false
+    var qnnGraphSwitching: Boolean? = null
 
     val isMicRecording: Boolean
         get() = micRecording.get()
@@ -289,7 +289,7 @@ class AiliaSpeechSample(private val modelDirectory: File) {
             speech = engine
             // Graph SwitchingはopenModelより前に設定する。ONNXモデルには影響しないためQNN時のみ設定する
             if (qnnFileName != null &&
-                (qnnGraphSwitching || QnnSupport.isSpeechQnnGraphSwitchingRequired(currentModelType))) {
+                (qnnGraphSwitching ?: QnnSupport.defaultSpeechQnnGraphSwitching(currentModelType))) {
                 Log.i(TAG, "Enabling QNN graph switching for ${currentModelType.displayName}")
                 requireSuccess("setQNNGraphSwitching", engine.setQNNGraphSwitching(true))
             }

@@ -104,11 +104,20 @@ class QnnSupportTest {
     }
 
     @Test
-    fun `sm8475 requires LLM graph switching only when mmproj is opened`() {
-        assertTrue(QnnSupport.isLlmQnnGraphSwitchingRequired("sm8475", withProjector = true))
-        assertFalse(QnnSupport.isLlmQnnGraphSwitchingRequired("sm8475", withProjector = false))
-        assertFalse(QnnSupport.isLlmQnnGraphSwitchingRequired("sm7635", withProjector = true))
-        assertFalse(QnnSupport.isLlmQnnGraphSwitchingRequired(null, withProjector = true))
+    fun `LLM graph switching defaults on only on sm8475 when mmproj is opened`() {
+        assertTrue(QnnSupport.defaultLlmQnnGraphSwitching("sm8475", withProjector = true))
+        assertFalse(QnnSupport.defaultLlmQnnGraphSwitching("sm8475", withProjector = false))
+        assertFalse(QnnSupport.defaultLlmQnnGraphSwitching("sm7635", withProjector = true))
+        assertFalse(QnnSupport.defaultLlmQnnGraphSwitching(null, withProjector = true))
+    }
+
+    @Test
+    fun `Voice Agent graph switching defaults on for E4B and on sm8475`() {
+        assertTrue(QnnSupport.defaultVoiceAgentQnnGraphSwitching("sm8475", LLMModelType.GEMMA_4_E2B))
+        assertFalse(QnnSupport.defaultVoiceAgentQnnGraphSwitching("sm7635", LLMModelType.GEMMA_4_E2B))
+        assertFalse(QnnSupport.defaultVoiceAgentQnnGraphSwitching(null, LLMModelType.GEMMA_4_E2B))
+        assertTrue(QnnSupport.defaultVoiceAgentQnnGraphSwitching("sm7635", LLMModelType.GEMMA_4_E4B))
+        assertTrue(QnnSupport.defaultVoiceAgentQnnGraphSwitching(null, LLMModelType.GEMMA_4_E4B))
     }
 
     @Test
@@ -125,10 +134,10 @@ class QnnSupportTest {
             "whisper-large-v3-sm8475-int16.qnn",
             QnnSupport.speechQnnFileName("sm8475", SpeechModelType.WHISPER_LARGE_V3),
         )
-        assertTrue(QnnSupport.isSpeechQnnGraphSwitchingRequired("sm8475", SpeechModelType.WHISPER_LARGE_V3))
-        assertFalse(QnnSupport.isSpeechQnnGraphSwitchingRequired("sm7635", SpeechModelType.WHISPER_LARGE_V3))
-        assertFalse(QnnSupport.isSpeechQnnGraphSwitchingRequired("sm8475", SpeechModelType.WHISPER_LARGE_V3_TURBO))
-        assertFalse(QnnSupport.isSpeechQnnGraphSwitchingRequired(null, SpeechModelType.WHISPER_LARGE_V3))
+        assertTrue(QnnSupport.defaultSpeechQnnGraphSwitching("sm8475", SpeechModelType.WHISPER_LARGE_V3))
+        assertFalse(QnnSupport.defaultSpeechQnnGraphSwitching("sm7635", SpeechModelType.WHISPER_LARGE_V3))
+        assertFalse(QnnSupport.defaultSpeechQnnGraphSwitching("sm8475", SpeechModelType.WHISPER_LARGE_V3_TURBO))
+        assertFalse(QnnSupport.defaultSpeechQnnGraphSwitching(null, SpeechModelType.WHISPER_LARGE_V3))
         assertNull(QnnSupport.speechQnnFileName("qcs6490", SpeechModelType.WHISPER_LARGE_V3))
         assertNull(QnnSupport.speechQnnFileName("sm7635", SpeechModelType.WHISPER_TINY))
         assertEquals(

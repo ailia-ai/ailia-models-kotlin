@@ -38,12 +38,14 @@ class AiliaVoiceAgentSample(context: Context, private val executor: ExecutorServ
         val speechModelType: SpeechModelType = SpeechModelType.WHISPER_MEDIUM,
         val llmModelType: LLMModelType = LLMModelType.GEMMA_4_E2B,
         val mtpEnabled: Boolean = llmModelType == LLMModelType.GEMMA_4_E2B,
+        /**
+         * SpeechとLLMのQNNでGraph Switchingを使うか。QNN以外のバックエンドには適用しない。
+         * 既定値はE4Bと一部の端末で有効([QnnSupport.defaultVoiceAgentQnnGraphSwitching])。
+         */
+        val qnnGraphSwitching: Boolean = QnnSupport.defaultVoiceAgentQnnGraphSwitching(llmModelType),
     ) {
         /** Gemma 4 E4Bと応答合成のGPT-SoVITSを同時に読み込むと8GB端末でメモリが不足するため、E4Bでは応答合成を使わない。 */
         val speechOutputSupported: Boolean get() = isSpeechOutputSupported(llmModelType)
-
-        /** Gemma 4 E4BではSpeechとLLMのQNNでGraph Switchingを有効にする。 */
-        val qnnGraphSwitching: Boolean get() = llmModelType == LLMModelType.GEMMA_4_E4B
 
         init {
             require(speechModelType in setOf(SpeechModelType.WHISPER_MEDIUM, SpeechModelType.WHISPER_LARGE_V3,

@@ -54,6 +54,11 @@
         android:checked="true" android:text="@string/voice_agent_mtp" />
     <TextView android:id="@+id/voiceAgentMtpNote" android:layout_width="match_parent" android:layout_height="wrap_content"
         android:text="@string/voice_agent_mtp_note" android:textSize="13sp" />
+    <androidx.appcompat.widget.SwitchCompat android:id="@+id/voiceAgentGraphSwitching"
+        android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="48dp"
+        android:layout_marginTop="20dp" android:text="@string/voice_agent_graph_switching" />
+    <TextView android:id="@+id/voiceAgentGraphSwitchingNote" android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:text="@string/voice_agent_graph_switching_note" android:textSize="13sp" />
     <androidx.appcompat.widget.SwitchCompat android:id="@+id/voiceAgentSpeechOutput"
         android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="48dp"
         android:layout_marginTop="20dp" android:checked="false" android:text="@string/voice_agent_speech_output" />

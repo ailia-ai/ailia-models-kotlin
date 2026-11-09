@@ -316,6 +316,17 @@
                 android:textSize="16sp"
                 android:visibility="gone" />
 
+            <!-- LLM/VLM/ALM/ToolUseでQNNのGraph Switchingを使うか。初期値は端末ごとに決め、QNN以外では無効 -->
+            <androidx.appcompat.widget.SwitchCompat
+                android:id="@+id/llmGraphSwitchingSwitch"
+                android:layout_width="match_parent"
+                android:layout_height="48dp"
+                android:layout_marginBottom="8dp"
+                android:text="Graph Switching (QNN)"
+                android:textColor="?android:attr/textColorPrimary"
+                android:textSize="16sp"
+                android:visibility="gone" />
+
             <!-- ToolUseでThinking(推論過程の出力)を有効にするか。既定はOFF -->
             <androidx.appcompat.widget.SwitchCompat
                 android:id="@+id/toolUseThinkingSwitch"
@@ -388,6 +399,17 @@
                 android:checked="true"
                 android:text="Live Mode (intermediate results)"
                 android:textColor="?android:attr/textColorPrimary"
+                android:visibility="gone" />
+
+            <!-- WhisperでQNNのGraph Switchingを使うか。初期値は端末とモデルごとに決め、QNN以外では無効 -->
+            <androidx.appcompat.widget.SwitchCompat
+                android:id="@+id/speechGraphSwitchingSwitch"
+                android:layout_width="match_parent"
+                android:layout_height="48dp"
+                android:layout_marginBottom="8dp"
+                android:text="Graph Switching (QNN)"
+                android:textColor="?android:attr/textColorPrimary"
+                android:textSize="16sp"
                 android:visibility="gone" />
 
             <!-- Run/Recordボタンとバックエンド選択を同じ高さで横並びにする。

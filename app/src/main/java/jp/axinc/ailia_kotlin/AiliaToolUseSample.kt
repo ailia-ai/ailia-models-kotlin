@@ -36,6 +36,9 @@ class AiliaToolUseSample {
     /** MTPを使うか。 */
     var mtpEnabled: Boolean = true
 
+    /** QNNのGraph Switchingを使うか。nullなら端末ごとの既定値([QnnSupport.defaultLlmQnnGraphSwitching])。 */
+    var qnnGraphSwitching: Boolean? = null
+
     /** 初期化時にMTPを有効にできたか。 */
     var isMtpActive: Boolean = false
         private set
@@ -176,6 +179,7 @@ class AiliaToolUseSample {
                     mtpPath = mtpFile?.absolutePath,
                     projectorPath = projectorFile?.absolutePath,
                     backend = backend,
+                    qnnGraphSwitching = SharedLLM.qnnGraphSwitching(backend, qnnGraphSwitching, projectorFile != null),
                 )
             )
             isMtpActive = SharedLLM.isMtpActive

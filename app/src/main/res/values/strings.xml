@@ -22,6 +22,9 @@
     <string name="voice_agent_mtp">MTP（生成の高速化）</string>
     <string name="voice_agent_mtp_note">モデルごとにオン・オフを選べます。初期値はE2Bがオン、E4Bがオフです。</string>
     <string name="voice_agent_mtp_unavailable">このモデルとバックエンドの組み合わせはMTPに対応していません。</string>
+    <string name="voice_agent_graph_switching">Graph Switching（QNNのメモリ削減）</string>
+    <string name="voice_agent_graph_switching_note">QNNの音声認識とテキスト生成で、使うグラフだけをメモリに読み込みます。読み込み直しで遅くなる場合があります。モデルごとに選べ、初期値はE4Bと、メモリが不足しやすい端末ではオンです。</string>
+    <string name="voice_agent_graph_switching_unavailable">音声認識かテキスト生成でQNNを選んだ場合に使用できます。</string>
     <string name="voice_agent_voice_model">音声合成 · GPT-SoVITS V2-Pro Distill Base</string>
     <string name="voice_agent_download_note">日本語で対話します。初回はモデルをダウンロードします。QNNは対応端末で選択できます。</string>
     <string name="voice_agent_start">開始</string>
