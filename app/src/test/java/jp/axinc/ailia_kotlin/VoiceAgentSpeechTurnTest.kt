@@ -12,7 +12,7 @@ class VoiceAgentSpeechTurnTest {
         var finalized = false
         var reportComplete = true
         override fun pushInputData(audio: FloatArray, channels: Int, sampleRate: Int) { events += "push" }
-        override fun buffered() = segments.isNotEmpty()
+        override fun vadBuffered() = segments.isNotEmpty()
         override fun finalizeInputData() { events += "finalize"; finalized = true }
         override fun transcribe(): List<String> { events += "transcribe"; return segments.removeFirst() }
         override fun complete() = finalized && segments.isEmpty() && reportComplete

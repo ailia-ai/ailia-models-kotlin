@@ -183,6 +183,12 @@ class AiliaSpeechSample(private val modelDirectory: File) {
      */
     var useQnn: Boolean = false
 
+    /**
+     * trueの場合、QNNモデル(.qnn)を開く際にGraph Switchingを有効にしてHTPの常駐メモリを減らす。
+     * 推論時間は増える場合がある。nullなら端末とモデルごとの既定値([QnnSupport.defaultSpeechQnnGraphSwitching])。
+     */
+    var qnnGraphSwitching: Boolean? = null
+
     val isMicRecording: Boolean
         get() = micRecording.get()
 
@@ -258,7 +264,7 @@ class AiliaSpeechSample(private val modelDirectory: File) {
         return try {
             val qnnFileName = qnnFileNameOrNull()
             if (useQnn && qnnFileName == null) {
-                throw IllegalStateException("QNN model is not available for ${currentModelType.displayName} on ${QnnSupport.socName}")
+                throw IllegalStateException("QNN model is not available for ${currentModelType.displayName} on ${QnnSupport.speechSocName}")
             }
             // .qnnはencoder/decoderの両方を含むため、両方に同じファイルを渡す
             val encoderPath = File(modelDirectory, qnnFileName ?: currentModelType.encoderFileName).absolutePath
@@ -281,6 +287,12 @@ class AiliaSpeechSample(private val modelDirectory: File) {
                 flags = flags
             )
             speech = engine
+            // Graph SwitchingはopenModelより前に設定する。ONNXモデルには影響しないためQNN時のみ設定する
+            if (qnnFileName != null &&
+                (qnnGraphSwitching ?: QnnSupport.defaultSpeechQnnGraphSwitching(currentModelType))) {
+                Log.i(TAG, "Enabling QNN graph switching for ${currentModelType.displayName}")
+                requireSuccess("setQNNGraphSwitching", engine.setQNNGraphSwitching(true))
+            }
             requireSuccess("openModel", engine.openModel(encoderPath, decoderPath, currentModelType.modelTypeId))
 
             // 言語設定("auto"は自動判定のためsetLanguageを呼ばない。Flutter版と同じ挙動)
@@ -363,11 +375,14 @@ class AiliaSpeechSample(private val modelDirectory: File) {
         transcribeTimeListener?.invoke((System.nanoTime() - startNanos) / 1_000_000)
     }
 
-    /** Non-LIVE input: Buffered is raised by Silero endpointing or the SDK's 30-second limit. */
-    internal fun createBufferedTurn(onIntermediate: ((String) -> Unit)? = null,
+    /**
+     * Non-LIVE input: VadBuffered is raised only when Silero detects the end of an utterance.
+     * Silence and short noise before the utterance are discarded by the SDK.
+     */
+    internal fun createVadBufferedTurn(onIntermediate: ((String) -> Unit)? = null,
                                    checkActive: () -> Unit = {}): VoiceAgentSpeechTurn {
         val engine = checkNotNull(speech) { "Speech model not initialized" }
-        check(!liveModeEnabled) { "Buffered endpoint detection requires non-LIVE mode" }
+        check(!liveModeEnabled) { "VadBuffered endpoint detection requires non-LIVE mode" }
         // Short Japanese replies should not require the general sample's one-second speech start.
         requireSuccess("setSilentThreshold", engine.setSilentThreshold(0.5f, 0.25f, 1.0f))
         Log.i(TAG, "Speech endpoint: Silero VAD, threshold=0.5, speechSec=0.25, noSpeechSec=1.0, non-LIVE")
@@ -394,7 +409,7 @@ class AiliaSpeechSample(private val modelDirectory: File) {
             override fun pushInputData(audio: FloatArray, channels: Int, sampleRate: Int) {
                 requireSuccess("pushInputData", engine.pushInputData(audio, channels, audio.size / channels, sampleRate))
             }
-            override fun buffered() = flag("buffered", engine.getBuffered())
+            override fun vadBuffered() = flag("vadBuffered", engine.getVadBuffered())
             override fun finalizeInputData() {
                 requireSuccess("finalizeInputData", engine.finalizeInputData())
                 Log.i(TAG, "Speech endpoint: finalizeInputData")

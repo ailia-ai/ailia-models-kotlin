@@ -304,16 +304,51 @@
                 android:layout_marginBottom="8dp"
                 android:visibility="gone" />
 
-            <!-- LLM/VLM/ALM/ToolUseでMTP(Multi-Token Prediction)を使うか。既定はON -->
-            <androidx.appcompat.widget.SwitchCompat
-                android:id="@+id/llmMtpSwitch"
+            <!-- 縦の領域を節約するため、MTPとGraph Switchingは1行に並べる。
+                 どちらも非表示の画面では行の高さが0になるよう、余白は子に持たせる -->
+            <LinearLayout
                 android:layout_width="match_parent"
-                android:layout_height="48dp"
+                android:layout_height="wrap_content"
+                android:baselineAligned="false"
+                android:orientation="horizontal">
+
+                <!-- LLM/VLM/ALM/ToolUseでMTP(Multi-Token Prediction)を使うか。既定はON -->
+                <androidx.appcompat.widget.SwitchCompat
+                    android:id="@+id/llmMtpSwitch"
+                    android:layout_width="0dp"
+                    android:layout_height="48dp"
+                    android:layout_marginBottom="8dp"
+                    android:layout_weight="2"
+                    android:checked="true"
+                    android:text="MTP"
+                    android:textColor="?android:attr/textColorPrimary"
+                    android:textSize="16sp"
+                    android:visibility="gone" />
+
+                <!-- LLM/VLM/ALM/ToolUseでQNNのGraph Switchingを使うか。値は画面ごとに持ち、
+                     初期値は端末と画面の種類で決める。QNN以外では無効 -->
+                <androidx.appcompat.widget.SwitchCompat
+                    android:id="@+id/llmGraphSwitchingSwitch"
+                    android:layout_width="0dp"
+                    android:layout_height="48dp"
+                    android:layout_marginStart="24dp"
+                    android:layout_marginBottom="8dp"
+                    android:layout_weight="3"
+                    android:text="Graph Switching"
+                    android:textColor="?android:attr/textColorPrimary"
+                    android:textSize="16sp"
+                    android:visibility="gone" />
+            </LinearLayout>
+
+            <!-- 既定でオンの画面(sm8475のVLM/ALM)でオフにした場合だけ表示する -->
+            <TextView
+                android:id="@+id/llmGraphSwitchingNoteTextView"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
                 android:layout_marginBottom="8dp"
-                android:checked="true"
-                android:text="MTP"
-                android:textColor="?android:attr/textColorPrimary"
-                android:textSize="16sp"
+                android:text="@string/llm_graph_switching_off_warning"
+                android:textColor="#FFC94242"
+                android:textSize="13sp"
                 android:visibility="gone" />
 
             <!-- ToolUseでThinking(推論過程の出力)を有効にするか。既定はOFF -->
@@ -388,6 +423,17 @@
                 android:checked="true"
                 android:text="Live Mode (intermediate results)"
                 android:textColor="?android:attr/textColorPrimary"
+                android:visibility="gone" />
+
+            <!-- WhisperでQNNのGraph Switchingを使うか。初期値は端末とモデルごとに決め、QNN以外では無効 -->
+            <androidx.appcompat.widget.SwitchCompat
+                android:id="@+id/speechGraphSwitchingSwitch"
+                android:layout_width="match_parent"
+                android:layout_height="48dp"
+                android:layout_marginBottom="8dp"
+                android:text="Graph Switching (QNN)"
+                android:textColor="?android:attr/textColorPrimary"
+                android:textSize="16sp"
                 android:visibility="gone" />
 
             <!-- Run/Recordボタンとバックエンド選択を同じ高さで横並びにする。

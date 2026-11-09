@@ -9,9 +9,10 @@ import java.io.File
  * LLM / VLM / ALM / Tool Useで共有するAiliaLLM。
  *
  * 画面を切り替えるたびにモデルを開き直すとQNNでは数秒かかるため、
- * 同じモデル・MTP・mmprojの組み合わせなら1つのインスタンスを使い回す。
+ * 同じモデル・MTP・mmproj・Graph Switchingの組み合わせなら1つのインスタンスを使い回す。
  * mmprojは後から追加できない(最初のプロンプトより前に開く必要がある)ため、
  * 対応するモデルでは常にmmprojも開き、どの画面からでも使えるようにする。
+ * Graph Switchingは画面ごとに選べるため、設定が異なる画面に移ると開き直す。
  *
  * QNNのモデルは初期化したスレッドで解放する必要があるため、
  * [acquire]と[release]は推論スレッド(MainActivityのcameraExecutor)から呼び出す。
@@ -19,13 +20,25 @@ import java.io.File
 object SharedLLM {
     private const val TAG = "SharedLLM"
 
-    /** 開いているモデルの組み合わせ。同じなら使い回す。 */
+    /**
+     * 開いているモデルの組み合わせ。同じなら使い回す。
+     * Graph SwitchingはopenModelFileより前にしか設定できないため、切り替えたら開き直す。
+     */
     data class Config(
         val modelPath: String,
         val nCtx: Int,
         val mtpPath: String?,
         val projectorPath: String?,
+        val backend: LLMBackend,
+        val qnnGraphSwitching: Boolean,
     )
+
+    /**
+     * QNNのGraph Switchingを使うか。QNN以外では有効にできないため常にfalse。
+     * [requested]がnullなら端末と画面の種類ごとの既定値([QnnSupport.defaultLlmQnnGraphSwitching])を使う。
+     */
+    fun qnnGraphSwitching(backend: LLMBackend, requested: Boolean?, mediaInput: Boolean): Boolean =
+        backend == LLMBackend.QNN && (requested ?: QnnSupport.defaultLlmQnnGraphSwitching(mediaInput))
 
     private var llm: AiliaLLM? = null
     private var config: Config? = null
@@ -65,6 +78,11 @@ object SharedLLM {
         release()
         val model = AiliaLLM()
         try {
+            // Graph SwitchingはopenModelFileより前に設定する
+            if (config.qnnGraphSwitching) {
+                Log.i(TAG, "Enabling QNN graph switching")
+                model.setQNNGraphSwitching(true)
+            }
             Log.i(TAG, "Opening model file: ${config.modelPath}")
             model.openModelFile(config.modelPath, config.nCtx)
             // Assistantは本体の後、mmprojと最初のプロンプトより前に開く

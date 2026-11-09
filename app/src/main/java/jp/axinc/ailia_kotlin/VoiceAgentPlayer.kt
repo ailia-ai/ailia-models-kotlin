@@ -3,6 +3,7 @@ package jp.axinc.ailia_kotlin
 import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioTrack
+import android.os.Build
 import android.os.SystemClock
 import android.util.Log
 import kotlin.math.roundToInt
@@ -19,6 +20,9 @@ internal class VoiceAgentPlayer {
 
     companion object {
         const val OUTPUT_SETTLE_MS = 400L
+
+        /** これより短い音声は聞き取れないため再生しない(記号だけの文で数サンプルの音声が返ることがある)。 */
+        private const val MIN_PLAYABLE_MS = 20
     }
 
     /** Call serially on a worker. Small buffers keep cancellation responsive during long answers. */
@@ -28,16 +32,27 @@ internal class VoiceAgentPlayer {
         val channels = clip.channels
         val rate = clip.sampleRate
         require(audio.isNotEmpty() && channels in 1..2 && rate > 0) { "合成音声の形式が不正です" }
+        val frames = audio.size / channels
+        if (frames < rate * MIN_PLAYABLE_MS / 1000) {
+            Log.d("VoiceAgent", "Skipping a $frames-frame clip that is too short to hear")
+            return
+        }
         val mask = if (channels == 1) AudioFormat.CHANNEL_OUT_MONO else AudioFormat.CHANNEL_OUT_STEREO
         val minimum = AudioTrack.getMinBufferSize(rate, mask, AudioFormat.ENCODING_PCM_16BIT)
         check(minimum > 0) { "音声出力を初期化できません" }
+        val bufferBytes = maxOf(minimum, rate / 5 * channels * 2)
         val track = AudioTrack(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA)
             .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build(),
             AudioFormat.Builder().setSampleRate(rate).setChannelMask(mask).setEncoding(AudioFormat.ENCODING_PCM_16BIT).build(),
-            maxOf(minimum, rate / 5 * channels * 2), AudioTrack.MODE_STREAM, android.media.AudioManager.AUDIO_SESSION_ID_GENERATE)
+            bufferBytes, AudioTrack.MODE_STREAM, android.media.AudioManager.AUDIO_SESSION_ID_GENERATE)
         try {
             check(track.state == AudioTrack.STATE_INITIALIZED) { "音声出力を初期化できません" }
-            val pcm = ShortArray(audio.size) { (audio[it].coerceIn(-1f, 1f) * 32767).roundToInt().toShort() }
+            // AudioTrackはバッファが開始しきい値まで埋まらないと再生を始めず、再生位置が終端に届かない。
+            // しきい値より短い音声は末尾を無音で埋めて再生させる
+            val playedFrames = maxOf(frames, startThresholdFrames(track, bufferBytes / (channels * 2)))
+            val pcm = ShortArray(playedFrames * channels) {
+                if (it < audio.size) (audio[it].coerceIn(-1f, 1f) * 32767).roundToInt().toShort() else 0
+            }
             synchronized(playbackLock) {
                 checkActive()
                 playbackTrack = track
@@ -79,8 +94,17 @@ internal class VoiceAgentPlayer {
         }
     }
 
+    /** 再生を始めるのに必要なフレーム数。取得できない古いOSでは要求したバッファの大きさを使う。 */
+    private fun startThresholdFrames(track: AudioTrack, requestedFrames: Int): Int = when {
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> maxOf(track.startThresholdInFrames, track.bufferSizeInFrames)
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.M -> track.bufferSizeInFrames
+        else -> requestedFrames
+    }
+
     private fun waveform(clip: AudioUtil.WavFileData, offset: Int, onWaveform: (FloatArray) -> Unit) {
-        val start = offset.coerceIn(0, clip.audioData.size)
+        // 無音で埋めた末尾を再生している間は波形を送らない
+        if (offset >= clip.audioData.size) return
+        val start = offset.coerceAtLeast(0)
         onWaveform(clip.audioData.copyOfRange(start,
             minOf(start + clip.sampleRate / 20 * clip.channels, clip.audioData.size)))
     }

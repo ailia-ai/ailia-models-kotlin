@@ -3,6 +3,7 @@ package jp.axinc.ailia_kotlin
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
+import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.BitmapFactory.Options
@@ -70,6 +71,11 @@ class MainActivity : AppCompatActivity() {
     private lateinit var llmInputBar: LinearLayout
     private lateinit var toolUseThinkingSwitch: SwitchCompat
     private lateinit var llmMtpSwitch: SwitchCompat
+    private lateinit var llmGraphSwitchingSwitch: SwitchCompat
+    private lateinit var llmGraphSwitchingNoteTextView: TextView
+    /** LLM系の画面ごとのGraph Switchingの選択。未操作の画面は端末と画面の種類ごとの既定値。 */
+    private val llmGraphSwitchingSelections = mutableMapOf<AlgorithmType, Boolean>()
+    private lateinit var speechGraphSwitchingSwitch: SwitchCompat
     private lateinit var settingsDebugLabel: TextView
     private lateinit var settingsQnnFormatLabel: TextView
     private lateinit var settingsQnnFormatRadioGroup: RadioGroup
@@ -178,6 +184,7 @@ class MainActivity : AppCompatActivity() {
     private val activityDestroyed = AtomicBoolean(false)
 
     private var imageAnalyzer: ImageAnalysis? = null
+    private var cameraPreview: Preview? = null
     private var camera: Camera? = null
     private var latestCameraBitmap: Bitmap? = null
 
@@ -398,6 +405,13 @@ class MainActivity : AppCompatActivity() {
         llmMtpSwitch = findViewById(R.id.llmMtpSwitch)
         // MTPのON/OFFを変えたらモデルを開き直す(Assistantは後から外せないため)
         llmMtpSwitch.setOnCheckedChangeListener { _, _ -> releaseLLMSamples() }
+        // Graph Switchingは画面ごとの値を表示する(updateLlmGraphSwitchingControls)
+        llmGraphSwitchingSwitch = findViewById(R.id.llmGraphSwitchingSwitch)
+        llmGraphSwitchingNoteTextView = findViewById(R.id.llmGraphSwitchingNoteTextView)
+        llmGraphSwitchingSwitch.setOnCheckedChangeListener(llmGraphSwitchingListener)
+        speechGraphSwitchingSwitch = findViewById(R.id.speechGraphSwitchingSwitch)
+        speechGraphSwitchingSwitch.isChecked = QnnSupport.defaultSpeechQnnGraphSwitching(selectedSpeechModelType)
+        speechGraphSwitchingSwitch.setOnCheckedChangeListener { _, _ -> resetSpeechModel() }
         settingsDebugLabel = findViewById(R.id.settingsDebugLabel)
         settingsQnnFormatLabel = findViewById(R.id.settingsQnnFormatLabel)
         settingsQnnFormatRadioGroup = findViewById(R.id.settingsQnnFormatRadioGroup)
@@ -542,7 +556,7 @@ class MainActivity : AppCompatActivity() {
      * 画像/カメラの表示領域を画面サイズに合わせて調整する。
      * 横画面でも高さが画面内に収まるよう、正方形の一辺を
      * 「画面幅(マージン込み)」と「画面高さの60%」の小さい方にする。
-     * 画面回転時はActivityが再生成されるためonCreateで再計算される。
+     * 画面回転時はActivityを作り直さないため、onConfigurationChangedで再計算する。
      */
     private fun adjustContentSizeForScreen() {
         val dm = resources.displayMetrics
@@ -955,12 +969,16 @@ class MainActivity : AppCompatActivity() {
         llmEnvSpinner.onItemSelectedListener = null
         llmEnvSpinner.adapter = adapter
         llmEnvSpinner.setSelection(backends.indexOf(selectedLLMBackend).coerceAtLeast(0), false)
+        llmGraphSwitchingSwitch.isEnabled = selectedLLMBackend == LLMBackend.QNN
+        updateLlmGraphSwitchingControls()
         llmEnvSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
             override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
                 val newBackend = backends[position]
                 if (newBackend != selectedLLMBackend) {
                     selectedLLMBackend = newBackend
                     preferredLLMBackend = newBackend
+                    llmGraphSwitchingSwitch.isEnabled = newBackend == LLMBackend.QNN
+                    updateLlmGraphSwitchingControls()
                     // バックエンド切り替え時は解放のみ(ダウンロードはSend押下時)
                     releaseLLMSamples()
                 }
@@ -990,7 +1008,7 @@ class MainActivity : AppCompatActivity() {
         }
         val qnnAvailable = QnnSupport.speechQnnFileName(selectedSpeechModelType) != null
         val items = environments.map { "${it.name} (id:${it.id})" }.toMutableList()
-        if (qnnAvailable) items.add("QNN ${QnnSupport.socName}")
+        if (qnnAvailable) items.add("QNN ${QnnSupport.speechSocName}")
         val qnnPosition = if (qnnAvailable) items.size - 1 else -1
         // QNN版のないモデルではBLAS(なければCPU)で実行する。VADと話者分離もこの環境で動かす
         val cpuIndex = if (environments.isEmpty()) -1 else preferredBlasThenCpuEnvironmentIndex(environments.map { it.type })
@@ -1008,6 +1026,7 @@ class MainActivity : AppCompatActivity() {
         speechEnvSpinner.onItemSelectedListener = null
         speechEnvSpinner.adapter = adapter
         if (selection >= 0) speechEnvSpinner.setSelection(selection, false)
+        speechGraphSwitchingSwitch.isEnabled = selectedSpeechUseQnn
         speechEnvSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
             override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
                 val newUseQnn = position == qnnPosition
@@ -1020,11 +1039,9 @@ class MainActivity : AppCompatActivity() {
                     selectedSpeechUseQnn = newUseQnn
                     preferredSpeechUseQnn = newUseQnn
                     selectedEnvId = newEnvId
+                    speechGraphSwitchingSwitch.isEnabled = newUseQnn
                     // バックエンド切り替え時は解放のみ(ダウンロードはRun/Record押下時)
-                    stopMicRecording(finalize = false)
-                    releaseSpeechModel()
-                    isInitialized = false
-                    isDownloadingModel.set(false)
+                    resetSpeechModel()
                 }
             }
             override fun onNothingSelected(parent: AdapterView<*>?) {}
@@ -1115,6 +1132,14 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    /** 録音を止めてSpeech2Textのモデルを解放し、次のRun/Record押下時に初期化し直す。 */
+    private fun resetSpeechModel() {
+        stopMicRecording(finalize = false)
+        releaseSpeechModel()
+        isInitialized = false
+        isDownloadingModel.set(false)
+    }
+
     /** Speech2Textのモデルを初期化したspeechExecutorで解放する。 */
     private fun releaseSpeechModel() = runOnModelThread(speechExecutor, speechThread) {
         speechSample.releaseSpeech()
@@ -1131,6 +1156,43 @@ class MainActivity : AppCompatActivity() {
     /** LLM / VLM / ALM / Tool Useで共有しているモデルを閉じる。LLM系以外の画面に移るときに呼ぶ。 */
     private fun releaseSharedLLM() = runOnModelThread(cameraExecutor, cameraThread) {
         SharedLLM.release()
+    }
+
+    /**
+     * LLM系の画面でGraph Switchingを切り替えたら、その画面の選択として覚えてモデルを開き直す。
+     * Graph SwitchingはopenModelFileより前にしか設定できないため。
+     */
+    private val llmGraphSwitchingListener = CompoundButton.OnCheckedChangeListener { _, checked ->
+        llmGraphSwitchingSelections[currentAlgorithm] = checked
+        updateLlmGraphSwitchingControls()
+        releaseLLMSamples()
+    }
+
+    /** 画像・音声を入力するLLM系の画面(VLM/ALM)か。 */
+    private fun isLlmMediaScreen(algorithm: AlgorithmType): Boolean =
+        algorithm == AlgorithmType.MULTIMODAL_LLM || algorithm == AlgorithmType.ALM
+
+    /** LLM系の画面のGraph Switchingの選択。未操作なら端末と画面の種類ごとの既定値。 */
+    private fun llmGraphSwitchingSelection(algorithm: AlgorithmType): Boolean =
+        llmGraphSwitchingSelections.getOrPut(algorithm) {
+            QnnSupport.defaultLlmQnnGraphSwitching(mediaInput = isLlmMediaScreen(algorithm))
+        }
+
+    /**
+     * スイッチを表示中の画面の選択に合わせる。既定でオンの画面(sm8475のVLM/ALM)をQNNでオフにした場合は、
+     * 画像・音声の入力がメモリ不足で失敗しうることを表示する。
+     */
+    private fun updateLlmGraphSwitchingControls() {
+        if (currentAlgorithm !in LLM_ALGORITHMS) return
+        val selected = llmGraphSwitchingSelection(currentAlgorithm)
+        if (llmGraphSwitchingSwitch.isChecked != selected) {
+            llmGraphSwitchingSwitch.setOnCheckedChangeListener(null)
+            llmGraphSwitchingSwitch.isChecked = selected
+            llmGraphSwitchingSwitch.setOnCheckedChangeListener(llmGraphSwitchingListener)
+        }
+        val warn = selectedLLMBackend == LLMBackend.QNN && !selected &&
+            QnnSupport.defaultLlmQnnGraphSwitching(mediaInput = isLlmMediaScreen(currentAlgorithm))
+        llmGraphSwitchingNoteTextView.visibility = if (warn) View.VISIBLE else View.GONE
     }
 
     /**
@@ -1235,11 +1297,12 @@ class MainActivity : AppCompatActivity() {
                     selectedSpeechModelType = newType
                     // 選んだモデルのQNN対応状況で選択肢を決める
                     setupSpeechEnvSpinner()
-                    stopMicRecording(finalize = false)
+                    // Graph Switchingの初期値はモデルごとに異なるため、モデルを変えたら既定値に戻す
+                    speechGraphSwitchingSwitch.setOnCheckedChangeListener(null)
+                    speechGraphSwitchingSwitch.isChecked = QnnSupport.defaultSpeechQnnGraphSwitching(newType)
+                    speechGraphSwitchingSwitch.setOnCheckedChangeListener { _, _ -> resetSpeechModel() }
                     // モデルダウンロードはRun/Record押下時まで遅延する
-                    releaseSpeechModel()
-                    isInitialized = false
-                    isDownloadingModel.set(false)
+                    resetSpeechModel()
                     clearTranscript()
                     classificationResultTextView.text = "Speech Result: --"
                 }
@@ -1451,6 +1514,9 @@ class MainActivity : AppCompatActivity() {
         llmStatusTextView,
         llmEnvSpinner,
         llmMtpSwitch,
+        llmGraphSwitchingSwitch,
+        llmGraphSwitchingNoteTextView,
+        speechGraphSwitchingSwitch,
         settingsDebugLabel,
         settingsQnnFormatLabel,
         settingsQnnFormatRadioGroup,
@@ -1531,6 +1597,7 @@ class MainActivity : AppCompatActivity() {
             speechModeRadioGroup,
             diarizationCheckBox,
             speechEnvSpinner,
+            speechGraphSwitchingSwitch,
         )
         if (isMicMode) {
             speechViews.addAll(
@@ -1557,6 +1624,7 @@ class MainActivity : AppCompatActivity() {
             llmStatusTextView,
             llmEnvSpinner,
             llmMtpSwitch,
+            llmGraphSwitchingSwitch,
         )
 
         // PPS計測用の貼り付けボタンはテキストのLLM画面だけに表示する
@@ -1657,6 +1725,7 @@ class MainActivity : AppCompatActivity() {
         managedAlgorithmViews().forEach { view ->
             view.visibility = if (view in visibleViews) View.VISIBLE else View.GONE
         }
+        updateLlmGraphSwitchingControls()
 
         // LLM/VLM/ALMはStatusにPrefill/Decodeの計測結果を出すため、Processing Timeは表示しない
         val isChatAlgorithm = currentAlgorithm == AlgorithmType.LLM ||
@@ -2166,6 +2235,9 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    /** チャット吹き出しの最大幅(画面幅の75%)。 */
+    private fun chatBubbleMaxWidth(): Int = (resources.displayMetrics.widthPixels * 0.75f).toInt()
+
     /** チャット吹き出しを追加する(ユーザー右寄せ/AI左寄せ) */
     private fun addChatBubble(message: String, isUser: Boolean): TextView {
         val bubble = TextView(this)
@@ -2175,7 +2247,7 @@ class MainActivity : AppCompatActivity() {
         bubble.setBackgroundResource(if (isUser) R.drawable.chat_bubble_user else R.drawable.chat_bubble_assistant)
         val pad = (10 * resources.displayMetrics.density).toInt()
         bubble.setPadding(pad, pad, pad, pad)
-        bubble.maxWidth = (resources.displayMetrics.widthPixels * 0.75f).toInt()
+        bubble.maxWidth = chatBubbleMaxWidth()
         val params = LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.WRAP_CONTENT,
             LinearLayout.LayoutParams.WRAP_CONTENT
@@ -2366,6 +2438,8 @@ class MainActivity : AppCompatActivity() {
         // 生成中にバックエンドや入力ソースを変えるとモデルを解放してしまうため止める
         llmEnvSpinner.isEnabled = enabled
         llmMtpSwitch.isEnabled = enabled
+        llmGraphSwitchingSwitch.isEnabled = enabled && selectedLLMBackend == LLMBackend.QNN
+        speechGraphSwitchingSwitch.isEnabled = enabled && selectedSpeechUseQnn
         toolUseThinkingSwitch.isEnabled = enabled
         almRecordButton.isEnabled = enabled
         almInputModeRadioGroup.isEnabled = enabled
@@ -2477,6 +2551,7 @@ class MainActivity : AppCompatActivity() {
         val modelType = selectedLLMModelType
         val backend = selectedLLMBackend
         val mtpEnabled = llmMtpSwitch.isChecked
+        val graphSwitching = llmGraphSwitchingSwitch.isChecked
         setLLMControlsEnabled(false)
         processingTimeTextView.text = "Processing Time: -- ms"
         llmStatusTextView.text = if (needsInitialization) "Status: Initializing..." else "Status: Generating..."
@@ -2493,6 +2568,7 @@ class MainActivity : AppCompatActivity() {
                     llmSample.modelType = modelType
                     llmSample.backend = backend
                     llmSample.mtpEnabled = mtpEnabled
+                    llmSample.qnnGraphSwitching = graphSwitching
                     llmSample.initialize(this@MainActivity, object : ModelDownloader.DownloadListener {
                         override fun onProgress(bytesDownloaded: Long, totalBytes: Long) {
                             if (!isCurrentOperation(operationId)) return
@@ -2612,6 +2688,7 @@ class MainActivity : AppCompatActivity() {
         val backend = selectedLLMBackend
         val modelType = selectedGemma4ModelType
         val mtpEnabled = llmMtpSwitch.isChecked
+        val graphSwitching = llmGraphSwitchingSwitch.isChecked
         val thinking = toolUseThinkingSwitch.isChecked
         val generatingStatus = "Status: Generating... (Thinking: ${if (thinking) "ON" else "OFF"})"
         setLLMControlsEnabled(false)
@@ -2628,6 +2705,7 @@ class MainActivity : AppCompatActivity() {
                     toolUseSample.backend = backend
                     toolUseSample.modelType = modelType
                     toolUseSample.mtpEnabled = mtpEnabled
+                    toolUseSample.qnnGraphSwitching = graphSwitching
                     toolUseSample.initialize(this@MainActivity, object : ModelDownloader.DownloadListener {
                         override fun onProgress(bytesDownloaded: Long, totalBytes: Long) {
                             if (!isCurrentOperation(operationId)) return
@@ -2787,6 +2865,7 @@ class MainActivity : AppCompatActivity() {
             val backend = selectedLLMBackend
             val modelType = selectedGemma4ModelType
             val mtpEnabled = llmMtpSwitch.isChecked
+            val graphSwitching = llmGraphSwitchingSwitch.isChecked
             setLLMControlsEnabled(false)
             processingTimeTextView.text = "Processing Time: -- ms"
             llmStatusTextView.text = if (needsInitialization) "Status: Initializing..." else "Status: Generating..."
@@ -2853,6 +2932,7 @@ class MainActivity : AppCompatActivity() {
                         multimodalLLMSample.backend = backend
                         multimodalLLMSample.modelType = modelType
                         multimodalLLMSample.mtpEnabled = mtpEnabled
+                        multimodalLLMSample.qnnGraphSwitching = graphSwitching
                         multimodalLLMSample.initialize(this@MainActivity, listener)
                     } else {
                         true
@@ -3041,6 +3121,7 @@ class MainActivity : AppCompatActivity() {
         val backend = selectedLLMBackend
         val modelType = selectedGemma4ModelType
         val mtpEnabled = llmMtpSwitch.isChecked
+        val graphSwitching = llmGraphSwitchingSwitch.isChecked
         setLLMControlsEnabled(false)
         processingTimeTextView.text = "Processing Time: -- ms"
         llmStatusTextView.text = if (needsInitialization) "Status: Initializing..." else "Status: Generating..."
@@ -3090,6 +3171,7 @@ class MainActivity : AppCompatActivity() {
                     almSample.backend = backend
                     almSample.modelType = modelType
                     almSample.mtpEnabled = mtpEnabled
+                    almSample.qnnGraphSwitching = graphSwitching
                     almSample.initialize(this@MainActivity, listener)
                 } else {
                     true
@@ -4420,6 +4502,7 @@ class MainActivity : AppCompatActivity() {
         val modelType = selectedSpeechModelType
         val envId = selectedEnvId
         val useQnn = selectedSpeechUseQnn
+        val graphSwitching = speechGraphSwitchingSwitch.isChecked
         val language = if (isMicMode) selectedSpeechLanguage else "auto"
         processingTimeTextView.text = "Processing Time: -- ms"
         speechRunButton.isEnabled = false
@@ -4428,6 +4511,7 @@ class MainActivity : AppCompatActivity() {
             try {
                 // QNN選択時はダウンロードするファイルも.qnnに変わるため先に設定する
                 speechSample.useQnn = useQnn
+                speechSample.qnnGraphSwitching = graphSwitching
                 speechSample.diarizationEnabled = diarization
                 val downloaded = speechSample.downloadModel(modelType, object : ModelDownloadListener {
                     override fun onProgress(fileName: String, bytesDownloaded: Long, totalBytes: Long) {
@@ -4783,6 +4867,7 @@ class MainActivity : AppCompatActivity() {
             val preview = Preview.Builder().build().also {
                 it.setSurfaceProvider(cameraPreviewView.surfaceProvider)
             }
+            cameraPreview = preview
 
             imageAnalyzer = ImageAnalysis.Builder()
                 .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
@@ -4814,6 +4899,7 @@ class MainActivity : AppCompatActivity() {
                 cameraProvider.unbindAll()
                 camera = null
                 imageAnalyzer = null
+                cameraPreview = null
             }, ContextCompat.getMainExecutor(this))
         } catch (e: Exception) {
             Log.e("AILIA_Error", "Error stopping camera: ${e.message}")
@@ -4977,6 +5063,25 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         }
+    }
+
+    /**
+     * 回転や画面サイズの変更ではActivityを作り直さない(マニフェストのconfigChanges)。
+     * 作り直すとモデル・会話・Voice Agentのセッションがすべて初期化されるため、
+     * 画面サイズに依存する表示とカメラの向きだけをここで更新する。
+     */
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        adjustContentSizeForScreen()
+        val bubbleMaxWidth = chatBubbleMaxWidth()
+        for (i in 0 until llmChatContainer.childCount) {
+            (llmChatContainer.getChildAt(i) as? TextView)?.maxWidth = bubbleMaxWidth
+        }
+        // カメラ画像はrotationDegreesで回転するため、ユースケースの向きを今の画面に合わせる
+        @Suppress("DEPRECATION")
+        val rotation = windowManager.defaultDisplay.rotation
+        cameraPreview?.targetRotation = rotation
+        imageAnalyzer?.targetRotation = rotation
     }
 
     override fun onStop() {

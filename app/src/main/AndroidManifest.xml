@@ -14,8 +14,11 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/Theme.Ailiakotlin">
+        <!-- 回転ではActivityを作り直さない(作り直すとモデル・会話・Voice Agentが初期化される)。
+             画面サイズに依存する表示はMainActivity.onConfigurationChangedで更新する -->
         <activity
             android:name=".MainActivity"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />

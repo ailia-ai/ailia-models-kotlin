@@ -104,6 +104,26 @@ class QnnSupportTest {
     }
 
     @Test
+    fun `LLM graph switching defaults on only for image and audio screens on sm8475`() {
+        // VLM / ALM
+        assertTrue(QnnSupport.defaultLlmQnnGraphSwitching("sm8475", mediaInput = true))
+        assertFalse(QnnSupport.defaultLlmQnnGraphSwitching("sm7635", mediaInput = true))
+        assertFalse(QnnSupport.defaultLlmQnnGraphSwitching(null, mediaInput = true))
+        // LLM / Tool Useは文字だけなのでグラフを常駐させる
+        assertFalse(QnnSupport.defaultLlmQnnGraphSwitching("sm8475", mediaInput = false))
+        assertFalse(QnnSupport.defaultLlmQnnGraphSwitching("sm7635", mediaInput = false))
+    }
+
+    @Test
+    fun `Voice Agent graph switching defaults on for E4B and on sm8475`() {
+        assertTrue(QnnSupport.defaultVoiceAgentQnnGraphSwitching("sm8475", LLMModelType.GEMMA_4_E2B))
+        assertFalse(QnnSupport.defaultVoiceAgentQnnGraphSwitching("sm7635", LLMModelType.GEMMA_4_E2B))
+        assertFalse(QnnSupport.defaultVoiceAgentQnnGraphSwitching(null, LLMModelType.GEMMA_4_E2B))
+        assertTrue(QnnSupport.defaultVoiceAgentQnnGraphSwitching("sm7635", LLMModelType.GEMMA_4_E4B))
+        assertTrue(QnnSupport.defaultVoiceAgentQnnGraphSwitching(null, LLMModelType.GEMMA_4_E4B))
+    }
+
+    @Test
     fun `Whisper Small, Medium, Large V3 and Large V3 Turbo run on QNN`() {
         assertEquals(
             "whisper-small-sm7635-int16.qnn",
@@ -113,7 +133,14 @@ class QnnSupportTest {
             "whisper-large-v3-sc8380xp-int16.qnn",
             QnnSupport.speechQnnFileName("sc8380xp", SpeechModelType.WHISPER_LARGE_V3),
         )
-        assertNull(QnnSupport.speechQnnFileName("sm8475", SpeechModelType.WHISPER_LARGE_V3))
+        assertEquals(
+            "whisper-large-v3-sm8475-int16.qnn",
+            QnnSupport.speechQnnFileName("sm8475", SpeechModelType.WHISPER_LARGE_V3),
+        )
+        assertTrue(QnnSupport.defaultSpeechQnnGraphSwitching("sm8475", SpeechModelType.WHISPER_LARGE_V3))
+        assertFalse(QnnSupport.defaultSpeechQnnGraphSwitching("sm7635", SpeechModelType.WHISPER_LARGE_V3))
+        assertFalse(QnnSupport.defaultSpeechQnnGraphSwitching("sm8475", SpeechModelType.WHISPER_LARGE_V3_TURBO))
+        assertFalse(QnnSupport.defaultSpeechQnnGraphSwitching(null, SpeechModelType.WHISPER_LARGE_V3))
         assertNull(QnnSupport.speechQnnFileName("qcs6490", SpeechModelType.WHISPER_LARGE_V3))
         assertNull(QnnSupport.speechQnnFileName("sm7635", SpeechModelType.WHISPER_TINY))
         assertEquals(

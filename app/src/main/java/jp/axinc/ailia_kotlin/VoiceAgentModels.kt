@@ -45,6 +45,8 @@ internal class VoiceAgentModels(private val context: Context) {
         checkActive()
         speech.currentModelType = config.speechModelType
         speech.useQnn = config.speechQnn
+        // 設定画面のGraph SwitchingはSpeechとLLMの両方に適用する(E4Bや一部の端末ではHTPのメモリが不足するため)
+        speech.qnnGraphSwitching = config.qnnGraphSwitching
         speech.language = "ja"
         check(speech.downloadModel(listener = progress)) { "Whisperモデルのダウンロードに失敗しました" }
         checkActive()
@@ -111,7 +113,7 @@ internal class VoiceAgentModels(private val context: Context) {
         checkActive()
         check(speech.initializeSpeech(config.speechEnvId, liveMode = false)) { "Whisperの初期化に失敗しました" }
         checkActive()
-        speechTurn = speech.createBufferedTurn(onIntermediateInput, checkActive)
+        speechTurn = speech.createVadBufferedTurn(onIntermediateInput, checkActive)
     }
 
     fun pushSpeech(audio: FloatArray, channels: Int, sampleRate: Int): Boolean =
@@ -143,6 +145,11 @@ internal class VoiceAgentModels(private val context: Context) {
         var partialReply = ""
         val photos = mutableListOf<JSONObject>()
         try {
+            // Graph SwitchingはopenModelFileより前に設定する。QNN以外では有効化できないためQNN時のみ設定する。
+            if (config.llmBackend == LLMBackend.QNN && config.qnnGraphSwitching) {
+                Log.i("VoiceAgent", "Enabling LLM QNN graph switching")
+                model.setQNNGraphSwitching(true)
+            }
             model.openModelFile(llmModelFile.absolutePath, if (config.llmBackend == LLMBackend.QNN) 0 else 4096)
             checkActive()
             mtpModelFile?.let { file ->
