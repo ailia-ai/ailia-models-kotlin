@@ -16,11 +16,15 @@ import java.util.concurrent.CancellationException
 
 /**
  * Owns downloads, inference and conversation history. Call only on the session's model executor:
- * QNN model creation and destruction must stay on that thread. Response synthesis uses a separate,
- * worker-local voice instance so it can overlap generation without sharing a native model.
+ * QNN model creation and destruction must stay on that thread. Response synthesis runs on a
+ * separate worker with its own voice instance, so it can overlap generation without sharing a
+ * native model with Gemma; that instance and its reference are kept for the whole session.
  */
 internal class VoiceAgentModels(private val context: Context) {
     private val speech = AiliaSpeechSample(ModelDownloader.modelDirectory(context))
+    private val voiceLock = Any()
+    // Guarded by voiceLock. Set only while response speech is enabled.
+    private var sessionVoice: AiliaVoiceSample? = null
     private var llm: AiliaLLM? = null
     private var speechTurn: VoiceAgentSpeechTurn? = null
     private lateinit var config: AiliaVoiceAgentSample.Config
@@ -401,20 +405,52 @@ internal class VoiceAgentModels(private val context: Context) {
         modelType = VoiceModelType.GPT_SOVITS_V2_PRO_DISTILL_BASE
     }
 
-    /** Create, use and release a private voice instance on the calling synthesis worker. */
+    /**
+     * Run [action] with an initialized voice whose reference is already set. With response speech
+     * enabled, the first call creates the instance and later turns reuse it until [release] ends
+     * the session. Without response speech (E4B or switched off) only test queries synthesize, so
+     * each call creates and releases its own instance and GPT-SoVITS is never resident with Gemma.
+     * The lock serializes the synthesis worker and the model executor on the shared instance.
+     */
     fun <T> withVoice(checkActive: () -> Unit, action: (synthesize: (String) -> AudioUtil.WavFileData) -> T): T {
         checkActive()
+        synchronized(voiceLock) {
+            val keep = config.speechOutputEnabled
+            val voice = sessionVoice ?: openVoice(checkActive).also { if (keep) sessionVoice = it }
+            var failed = false
+            try {
+                checkActive()
+                return action { text ->
+                    try {
+                        synthesizeInitialized(voice, text, checkActive)
+                    } catch (error: Exception) {
+                        // A native failure may leave the instance unusable; cancellation does not.
+                        if (error !is CancellationException) failed = true
+                        throw error
+                    }
+                }
+            } finally {
+                if (!keep || failed) {
+                    voice.releaseVoice()
+                    if (sessionVoice === voice) sessionVoice = null
+                }
+            }
+        }
+    }
+
+    /** Initialize a voice and set its reference; a partially initialized voice is released. */
+    private fun openVoice(checkActive: () -> Unit): AiliaVoiceSample {
         val voice = createVoice()
-        val reference = AudioUtil().loadRawAudio(context.resources.openRawResource(R.raw.reference_audio_girl))
         try {
+            val reference = AudioUtil().loadRawAudio(context.resources.openRawResource(R.raw.reference_audio_girl))
             check(voice.initializeVoice(config.voiceEnvId)) { "GPT-SoVITSの初期化に失敗しました" }
             checkActive()
             check(voice.setReferenceAudio(reference.audioData, reference.channels, reference.sampleRate,
                 "水をマレーシアから買わなくてはならない。", "ja")) { "参照音声の設定に失敗しました" }
-            checkActive()
-            return action { text -> synthesizeInitialized(voice, text, checkActive) }
-        } finally {
+            return voice
+        } catch (error: Throwable) {
             voice.releaseVoice()
+            throw error
         }
     }
 
@@ -428,11 +464,18 @@ internal class VoiceAgentModels(private val context: Context) {
         return AudioUtil.WavFileData(voice.lastAudioSampleRate, voice.lastAudioChannels, checkNotNull(voice.lastAudioData))
     }
 
-    fun release(clearHistory: Boolean = true) {
+    /** [keepVoice] keeps the response voice for the next turn when only this turn is interrupted. */
+    fun release(clearHistory: Boolean = true, keepVoice: Boolean = false) {
         speechTurn = null
         speech.releaseSpeech()
         runCatching { llm?.destroy() }.onFailure { Log.w("VoiceAgent", "Failed to release LLM", it) }
         llm = null
         if (clearHistory) history.clear()
+        if (!keepVoice) {
+            synchronized(voiceLock) {
+                sessionVoice?.releaseVoice()
+                sessionVoice = null
+            }
+        }
     }
 }

@@ -17,7 +17,8 @@ import java.util.concurrent.atomic.AtomicLong
  * VoiceAgentModels owns inference/history; VoiceAgentPlayer owns PCM output.
  * Speech/LLM creation, inference and destruction run on the supplied model executor.
  * The executor must be the same one used for the application's other LLMs (QNN thread affinity).
- * Response synthesis owns a private voice model on a separate worker, joined before the next turn.
+ * Response synthesis runs on a separate worker, joined before the next turn. Its voice model and
+ * reference are set up on the first response and kept until the session stops.
  * Microphone capture is stopped during recognition, generation and playback to avoid feedback.
  * Whisper is released before generation; Gemma and response synthesis can run concurrently.
  */
@@ -207,7 +208,7 @@ class AiliaVoiceAgentSample(context: Context, private val executor: ExecutorServ
         if (discardInputPreview) listener?.onIntermediateInput("")
         listener?.onOutput("")
         // This runs after the cancelled turn's finally blocks and before any new inference.
-        executor.execute { models.release(clearHistory = false) }
+        executor.execute { models.release(clearHistory = false, keepVoice = true) }
         if (resumeMicrophone) emit(token) { listen(token) }
         return true
     }
